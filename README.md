@@ -13,28 +13,31 @@ Before 3D objects can be accessed in Celqi, these objects must be added to the s
 
 DEFINING BANKS AND OBJECTS
 
-Each bank is a sub-array within getModels()'s models array. Each object definition within a bank is a two-element array whose first element is a string containing the object's display name and whose second element is a string containing the object's filepath as returned by the FUZE media browser. Optionally, the first element of a bank may be a single-element array that provides a bank name. If this bank name isn't given, the bank will be auto-named.
+Each bank is a sub-array within getModels()'s models array. Each object definition within a bank is a two-element array whose first element is a string containing the object's display name and whose second element is a string containing the object's filepath as returned by the FUZE media browser. If the name is an empty string (""), the object will be auto-named based on the filepath.
 
-Here is an example of what the full models array looks like:
+Optionally, the first element of a bank may be a single-element array that provides a bank name. If this bank name isn't given, the bank will be auto-named.
+
+Here is an example of what a full models array looks like:
 
 var models = [
-	// Bank 1
 	[
 		["Nature 1"], // Bank name (optional)
 		["Stump", "Kenney/Trunk_01"], // Object name, object filepath
 		["Shrub 1", "Kenney/Plant_1_01"],
 		["Shrub 2", "Kenney/Plant_2_01"]
 	],
-	// Bank 2
-	[
-		["Nature 2"], 
-		["River (Dirt)", "Kenney/Plate_River_Dirt_01"],
-		["River Corner (Dirt)", "Kenney/Plate_River_Corner_Dirt_01"],
-		["Rock", "Kenney/Rock_1_01"]
+	[	// No bank name given, so bank will be auto-named 
+		["", "Kenney/Plate_River_Dirt_01"], // Object will be auto-named "Plate River Dirt 01"
+		["", "Kenney/Plate_River_Corner_Dirt_01"], // Object will be auto-named "Plate River Corner Dirt 01"
+		["", "Kenney/Rock_1_01"] // Object will be auto-named "Rock 1 01"
 	]
 ]
 
-You may add as many banks as you want, and each bank may have as many objects as you want. Objects may also have whatever names you want, but each name must be unique regardless of what bank the object is in. If the code will not run after creating banks and objects, make sure that all array items are separated by commas, that the final element of each array does not end with a comma, and that all bank/object names and filepaths are enclosed in double quotes.
+Objects may have whatever names you want, but each name must be unique regardless of what bank the object is in.
+
+FUZE has an internal memory limit of 124 models loaded, so you cannot create more than 124 object definitions. Exceeding this limit will produce an error message when Celqi launches. The default "Castle Demo" bank can be safely deleted to free up model space if you are not using the definitions in your own maps.
+
+If Celqi will not run after creating banks and objects, make sure that all array items are separated by commas, that the final element of each array does not end with a comma, and that all bank/object names and filepaths are enclosed in double quotes.
 
 MODIFYING BANKS AND OBJECTS
 
@@ -52,25 +55,23 @@ Once an object definition has been created, you should not change its filepath. 
 
 CONTROLS
 
-A note about keyboard use: Celqi is designed to be used with Joycons, though it is also possible to use a USB keyboard. FUZE can see only a keypress and its repeat rate and does not see when the key is released. Because of this, camera movement, which is continuous with Joycon control, is incremental with keyboard control. The camera will move smoothly through those increments, but the lack of data about keypress duration limits the precision with which the camera can be moved.
-
-Keyboard bindings can be manually changed by editing the g_bind struct (found at line X).
+Celqi is designed to be used with Joycons, though it is also possible to use a USB keyboard. Keyboard bindings can be manually changed by editing the g_bind struct (found at line X).
 
 CAMERA
 
 Forward - ZR (w)
 Backward - ZL (s)
 Pitch/yaw - right stick (shift + w/s, q/e)
-Slide up/down/left/right - D-pad (, a/d)
+Slide up/down/left/right - D-pad (w/s/a/d)
 
 CURSOR
 
 Move cursor forward/backward/left/right - left stick (i/k/j/l)
 Move cursor up/down/left/right - L + left stick (o/u/j/l)
 Cycle edit mode - R (space)
-Start mass selection - B (NEED TO ADD)
-Cancel mass selection (while selecting) - B
-Confirm mass selection (while selecting) - A
+Start mass selection - B (\)
+Cancel mass selection (while selecting) - B (\)
+Confirm mass selection (while selecting) - A (enter)
 Place current brush object - A (enter)
 
 ROTATE MODE
@@ -97,7 +98,7 @@ Confirm selection - A (enter)
 TEXT VIEWING
 
 Scroll - Left stick/D-pad (w/s)
-Fast scroll - right stick (NEED TO ADD)
+Fast scroll - right stick
 
 
 
@@ -136,7 +137,6 @@ Camera options
 	Movement speed - Change how fast the camera moves.
 	Rotation speed - Change the speed of the camera's pitch and yaw.
 	Field of view - Change the camera's field of view within a range of 50 to 110.
-	Draw distance - Set the camera's draw distance in number of cells (see DRAW DISTANCE).
 Position options
 	Snap mode - Change if and how the cursor snaps to the grid. Snap by will change the cursor's position by the given value when moved. Snap to will snap the cursor to a multiple of the given value when moved.
 	Snap increment - Set the amount by which the cursor snaps. Grid unit is the same as 1 for Snap by, but for Snap to, Grid unit will center the cursor in the given grid value (effectively giving an offset of 0.5) rather than positioning it at the corner as it does when the unit is 1.
@@ -154,17 +154,17 @@ Advanced
 	Screen resolution - If the Switch is docked, the display resolution can be increased to 1920x1080. This feature is not fully tested because Celqi is developed on a Switch Lite.
 	Photo mode - Hides UI elements and editor widgets to facilitate screenshots.
 	Show object labels - Displays objects' names and their indices in the g_cell array (see REFERENCING OBJECTS IN CODE).
-	Camera collisions - Set whether the camera can collide with map objects.
-	Show cell outlines - Celqi maps are built from a matrix of 5x5x5 cells that are automatically created by cursor movement and object placement. These cells are important to the underlying map engine, but in most cases, they can be ignored during map creation. You can use this option to view the cells. Empty cells are not saved; saving and reloading the map will purge them.
+	Camera collisions - Set the algorithm used for finding camera collisions with the environment.
+	Show cell outlines - Celqi maps are built from a matrix of 5x5x5 cells that are automatically created by cursor movement and object placement. These cells are important to the underlying map engine, but in most cases, they can be ignored during map creation. This option enables visualization of the cells that the camera and cursor are in.
 	View raw save file data ... - Celqi save data is witten to file as human-readable text. You can view the text of the save file with this option. This is a debugging feature; there's no need to understand the file format unless there's a problem you're trying to diagnose.
 
 
 
 OBJECT MENU
 
-To select an object for the brush, first open the object menu (Y). This brings up a visual list of both the objects you have defined via code in getModels() (see DEFINING BANKS AND OBJECTS) and the merged objects you have defined using Save in bank as merged object (see MERGED OBJECTS). The current bank can be changed with L and R or with the sidebar entries. If the number of objects in a bank exceeds the viewable size, the object list can be scrolled by moving the selection cursor towards the bottom or top of the menu.
+To select an object for the brush, first open the object menu (Y). This brings up a visual list of both the objects you have defined via code in getModels() (see DEFINING BANKS AND OBJECTS) and the merged objects you have defined using "Save in bank as merged object" (see MERGED OBJECTS). The current bank can be changed with L and R or with the sidebar entries. If the number of objects in a bank exceeds the viewable size, the object list can be scrolled by moving the selection cursor towards the bottom or top of the menu.
 
-For code-defined objects (no paper stack icon), pressing A copies the object to the brush and closes the object menu. For merged objects (paper stack icon), pressing A brings up the merged object menu (see MERGED OBJECTS).
+For most objects, pressing A copies the object to the brush and closes the object menu. For merged objects (paper stack icon), pressing A brings up the merged object menu (see MERGED OBJECTS).
 
 
 
@@ -176,7 +176,7 @@ POSITION
 
 In position mode, the cursor is moved horizontally with the left control stick and vertically with the left control stick + L. The cursor snaps according to the position options set in the main menu. The camera is moved independently of the cursor; if you lose track of the cursor, it can be recentered on the sceen by choosing Camera options > Recenter cursor.
 
-While in position mode, pressing B creates a mass selection box. The box's size is adjusted by moving the cursor, and objects that will be included in a committed selection flash. To commit the selection, press A; to cancel the selection, press B. To unselect objects after selecting them, choose Selection > Remove from selection > [OBJECT NAME] or Selection > Clear selection.
+While in position mode, pressing B creates a mass selection box. The box's size is adjusted by moving the cursor, and objects that will be included in a committed selection flash. To commit the selection, press A; to cancel the selection, press B. To unselect objects after selecting them, choose "Selection > Remove from selection > [OBJECT NAME]" or "Selection > Clear selection."
 
 ROTATE
 
@@ -192,11 +192,11 @@ Scale mode is not available for lights because they don't have size.
 
 
 
-MERGED OBJECTS [CHECK UNMERGE BEHAVIOR RE: UNLOADED MAPS]
+MERGED OBJECTS
 
-By selecting objects and choosing Selection > Save in bank as merged object you can combine multiple objects into a single object definition. A merged object, identified by the paper stack icon in the object menu, can be used as a single, unified object by selecting Set brush (single merged), or it can be deconstructed into its underlying objects by selecting Set brush (multiple unmerged). It is also possible to merge already-merged objects, creating multiple layers of merging. (FUZE will eventually hit its recursion limit and throw an error if the merged layers go too deep, so it is best not to merge deeper than a couple of layers.)
+By selecting objects and choosing "Selection > Save in bank as merged object" you can combine multiple objects into a single object definition. A merged object, identified by the paper stack icon in the object menu, can be used as a single, unified object by selecting "Set brush (single merged)," or it can be deconstructed into its underlying objects by selecting "Set brush (multiple unmerged)." It is also possible to merge already-merged objects, creating multiple layers of merging. (FUZE will eventually hit its recursion limit and throw an error if the merged layers go too deep, so it is best not to merge deeper than a couple of layers.)
 
-Unlike code-defined objects, merged object definitions can be deleted from within the object menu. Deleting a merged object definition can have far-reaching consequences depending on how the object has been used. A merged object can be directly placed in a map (first-level use), used as an element of other merged object definitions (second-level use), or indirectly placed in a map via those other merged objects of which it is an element (third-level use). Deletion of a definition affects all three of those uses, so you should be aware of how the object has been used before you delete it -- if you aren't, you may inadvertantly affect other objects that you didn't realize referenced the deleted definition.
+Unlike code-defined objects, merged object definitions can be deleted from within the object menu. Deleting a merged object definition can have far-reaching consequences depending on how the object has been used. A merged object can be directly placed in a map (first-level use), used as an element of other merged object definitions (second-level use), or indirectly placed in a map via those other merged objects of which it is an element (third-level use). Deletion of a definition affects all three of these uses, so you should be aware of how the object has been used before you delete it -- if you aren't, you may inadvertantly affect other objects that you didn't realize referenced the deleted definition.
 
 If you elect to remove references, they are completely deleted without being replaced. Replacing references substitutes the current brush object for any references, retaining the scales, rotations, and positions of the original references. Unmerging explodes the references into their constituent elements without otherwise changing them. If you choose "In this map only," the deletion/replacement/unmerging will still affect second- and third-level uses in other maps, but when loading another map, you will be prompted to relink any first-level uses in that map.
 
@@ -216,23 +216,18 @@ Every time you cut or copy objects, Celqi adds them to the Clipboard bank. You c
 
 
 
-DRAW DISTANCE
-
-The draw distance value refers to visible cells beyond the the camera cell along cardinal axes. It is important to understand that setting a draw distance instead of leaving it at infinite will not necessarily improve performace. Celqi implements draw distance by hiding and showing objects at the distance threshold, and this entails substantial processing overhead. In cases where a performace bottleneck stems from the amount or complexity of the visual rendering, setting a draw distance may improve performace. In all other cases, a draw distance will degrade performance.
-
-
 
 REFERENCING OBJECTS IN CODE
 
 The g_cell indices that can be toggled with Show object labels can be used in code to refer to the map objects directly, but there are a few caveats: Celqi constructs these indices when a map is loaded or when objects are placed during map editing, and the indices should only be considered accurate for direct referencing in code when the map is freshly loaded and unchanged. Any further changes to the map may change how Celqi assigns these indices and may make any existing use of them in code inaccurate. If the map has been changed from its saved state, Celqi places an asterisk by the g_cell indices to remind you that they may not be accurate.
 
-An object may have more than one g_cell index listed depending on how many cells it overlaps; any of the listed indices can be used, but the first one refers to the cell in which the object's position origin is located.
+An object may have more than one g_cell entries listed depending on how many cells it overlaps. Code should reference the first entry; subsequent entries are shortcuts that point back to the first one.
 
 All map objects including lights are wrapped in a mapObj struct. The instantiated 3D object (or group, in the case of merged objects) is stored in the .obj field. Unlike with 2D sprites, FUZE does not natively expose the properties of 3D objects, so properties such as position and rotation must be externally tracked. Celqi tracks these properties in the various fields of mapObj. Any changes made to the .obj object/group must also be made to the associated struct fields in mapObj -- the easiest way to do this is to make changes to objects via Celqi's object functions, which automatically manage the synchronization of the object/group and the struct.
 
 Because the .obj field may contain an instantiated 3D object, an object group (if a merged object), or -1 (if a light), you may need to check what .obj contains before operating on it. This can be done by checking whether the length of the .children array and the .lights array. If the length of .children is greater than 0, the .obj field contains a group; if the length of .lights is more than 0, the .obj field contains -1; otherwise, .obj contains an object.
 
-The .gridBit field stores a binary approximation of the object's collision box within the cell and is used to quickly screen possible collisions before running a full collision check on the object. If collision detection is needed for a mapObj, its .gridBit field must be updated whenever the object's postion, rotation, or scale (collectively referred to as its transform) changes. This is done with [CHECK FUNCTION] or [OTHER FUNCTION]. The first function is a fast calculation meant for objects whose transforms may later change. The second is a slower but more accurate calculation meant for objects whose transforms will not change after initial placement.
+The .gridBitList field stores a binary approximation of the object's collision box within the cell and is used to quickly screen possible collisions before running a full collision check on the object. If collision detection is needed for a mapObj, its .gridBit field must be updated whenever the object's postion, rotation, or scale (collectively referred to as its transform) changes. This is done with [CHECK FUNCTION] or [OTHER FUNCTION]. The first function is a fast calculation meant for objects whose transforms may later change. The second is a slower but more accurate calculation meant for objects whose transforms will not change after initial placement.
 
 A mapObj struct has the following properties:
 
