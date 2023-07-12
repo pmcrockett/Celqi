@@ -1,130 +1,24 @@
 /* TODO: 
 
-REDUCE VARIABLE COUNT:
+active is now pointless -- just replace it with mapObj
 
-* Store obj refs in cells instead of all obj data
-* Replace mapObj.name with a function that reads its name from the objDef via bank/idx
-* mapObj.bank/idx can combine into one variable via bitshift and be read via function
-mapObj.highlight needs a different handlign method that doesn't require a mapVar key
-mapObj.cellIdx can maybe be deleted, using the function instead
+Changed
+	Add string case functions
+	Add map stats
+	Definition load always rebuild extents, allowing for arbitrary filepath swapping
+	Fix light spread being wrong default
+	Add commonly used position values to menu
+	Make common wall between visualized cells invisible
+	Fix bugs in mass selection that caused objects to sometimes not get highlighted or selected
 
-* lightObj.up can be deleted
-
-g_cell[idx][0] (pos) can be replaced with the function
-g_cell[idx][2] and [3] are draw dist and can maybe be removed
-
-* Change cell oulines so only the cursor cell is visible/stored
-
-
-DISABLED
-	g_cell[idx][2] (draw dist cells)
-
-* Refactor to remove use of g_grid
-* Prompt map save on new/load?
-* Delete map
-* Map clean/dirty state
-* Photo mode
-* Menu repeat rate (keyboard)
-* Reconcile Joycon/keyboard cam speeds
-* Change gridBit to use 64-bit ints?
-* Double-check object relinking across multiple map files
-* Refactor mass sel to use collision instead of ext overlaps
-* remove draw dist stuff
-Find and squash bugs
-	* Recentering while editing scale/rot leaves widget behind
-	* Light icons don't disappear if they start loaded outside viewable area
-	* Selection flash should respond faster -- can this be done w/o constant checks?
-	* Obj names go in front of merged obj menu
-	* Remove/deactivate mass selection box when new/load map
-	* Rotation visualizer doesn't refresh when object is changed while it's visible
-	* Changing edit mode while mass selecting crashes
-	*? Placing a merged obj on top of an identical one crashes
-	* An object in a selection (or maybe only a recalled selection) that is rotated diferently pastes wih the wrong scale axis when scaled with the brush group
-	* Make sure obj relinking works with new reference system
-		* Redef for a deleted base obj needs to resize merged objects that use the redef-dependent children
-		* Recursion limit when calling redef on non-boot map load
-		* resolveObjDefDeletionForLoadedMap() needs to deal properly with an unmerged brush objects
-		* Relinking merged obj replaces shrub1 with Stump in defs no matter what
-	* Load/new doesn't discard cell outlines properly
-	* CollisionTest overflows from interior load
-	* Cutting obj doesn't remove light spr from show/hide lists
-	* light sprites don't draw in the right place when double merged and rotated
-	* deleteMapObj can be made more efficient by just using the object's cellIdx list
-	* World shadow lights don't get placed correctly
-	* Starting mass select during rotation shouldn't be possible
-	* Lights not retaining rotation when cut
-	getExtCollisionBitsFast() may no longer be faster after optimizing the slower version
-	* Mass selection sometimes misses objects, both in preview and in commit
-	* Animating (?) objects don't calculate ext correctly
-	* updateCellOutline() accessing out of bounds idx
-	* Make addCellToGridBitList() calculate gridBits for all children
-	* Scaling/rotating mass copied objects may lose correct rotation when placed if .fwd is straight up or down
-	* Light Obj props not restoring from file correctly
-	* Cutting a light should immediately make the brush light menu available
-	* Exts of some objs not calculated correctly
-	* Continue smoothing out redef during map load
-	* Replacing two defs during obj def load hits recursion limit
-	* Redef list in map loader needs to be changed
-	* Obj defs with doubly merged lights display the sprites w/ exaggerated distance values
-	* Def deletions that cause a merged obj to have no objects need to delete that merged object
-	* When modifying objects in file, lights need to be changed
-	* Lights from unmerged deleted defs in map objects need to be hidden on creation
-	* Selection/highlight color sometimes not getting removed (clear selection)?
-	* Deleting merged obj with light makes updateLightSpr() crash because the light
-		* isn't getting removed from g_lightIcons
-	* Check that resolveMergedObjDefChanges() actualy works in edge cases: e.g. does it need to pull extents differently?
-		* Can it be combined with other functions used for updating merged objects?
-	* Does kb buffer need to be updated in interior loops that take input?
-	* Make sure addCellToGridBitList() works with groups (see function comment)
-	* Pressing X on objMenu can still trigger a prefs write
-	* B button doesn't cancel from deepest merged obj menu
-	* Occasional crashes because reopening main menu pulls a selIdx that can't be resolved (problem in unselect chain in light menu)
-	* deleteObjCopyFromCell() needs to update cellIdx entries for everything affected
-	* Do we need to recalculate extents when deleting/replacing an object? (Yes)
-	* Make sure cloneObjLightDataRecursive() works
-		* Need to hide light sprites when reloading the activeObj during objMenu
-	* Active obj bank/idx aren't getting updated by deleting merged objects
-	* Replacing a merged obj with a brush object probably won't respect light properties
-	* Recursion limit: recursion crash when new map w/ objects selected
-	* g_lightIcons not getting cleared when merged multi-light objects are removed
-	* g_lightIcons not getting cleared when some unmerged lights are removed?
-	* Merged multi-light objects run very slowly -- something in the sprite updating is causing this (nope, spot lights just cause high load)
-	* Merged objs with nothing in their origin cells aren't getting saved
-	* Sometimes setGrpLightsPos() tries to access removed light (e.g. when clearing map) for merged objs with multiple lights
-	* Need to disable bank change when merged obj submenu is open
-	* Repeat rate doesn't work in scale/rotate mode
-	*? Rotated objs rotate wrong if moved after rotation?
-	*? Scaling box for rotated obj isn't aligned (unrepeatable?)
-	* updateLightSpr() sometimes tries to update light sprites for objects that have been cut/deleted when there's only one light in map
-		* Make sure cut affects light icon array/world light array
-	* Object labels draw behind light sprites
-	* Load icon persists after new map
-	* Copying lights doesn't copy light data
-	* Merged lights in activeObj and brush don't hide for obj menu
-	* Cut moves merged obj origin
-	* Objects under cursor needs to update when an object is placed so that object is on the list
-	* Cut doesn't delete original object
-	* Cut/copy from cursor origin doesn't position relative to the cursor
-	*? Selecting merged objs from the clipboard isn't unmerging them when placing them
-	* Objects placed on the -Z side of a cell w/ cursor snapped to unit don't get picked up by under cursor checks
-	* Editing color for multiple lights removes parens around "multiple" in menu
-Refactor
-	* changeVecSpaceZFwd
-	* getObjExtent
-	* Keyboard parsing
-*/
-
-/* The general rule here is to avoid copying large chunks of data into
+The general rule here is to avoid copying large chunks of data into
 local execution contexts in order to optimize RAM use. This means that
 some global data structures such as g_obj and g_grid may be directly referenced 
 by functions even though it would likely be considered best practice to 
 pass them as arguments in a less resource-restricted environment. 
 
 Naming conventions for variables: Arguments are preceded by "_" and global
-variables are preceded by "g_". Constants are all caps.
-
-ambientLight() is not implemented because it does the same thing as setting
-a tinted setEnvironment() with an invalid image index.
+variables are preceded by "g_".
 */
 
 // ----------------------------------------------------------------
@@ -170,35 +64,25 @@ function getModels()
 			["Floor Curved Lg", "Fertile Soil Productions/Floor_Curved_Large"],
 			["Floor Curved Lg Outer", "Fertile Soil Productions/Floor_Curved_Large_Outer"],
 			["Floor Curved Norm Sq", "Fertile Soil Productions/Floor_Curved_Normal_Square"],
-			//["Floor Curved Sm", "Fertile Soil Productions/Floor_Curved_Small"],
-			//["Floor Curved Sm Outer", "Fertile Soil Productions/Floor_Curved_Small_Outer"],
 			["Floor Grooved Corner", "Fertile Soil Productions/Prop_Floor_Grooved_Corner"],
 			["Floor Grooved End", "Fertile Soil Productions/Prop_Floor_Grooved_End"],
 			["Floor Grooved Straight", "Fertile Soil Productions/Prop_Floor_Grooved_Straight"],
-			//["Floor Pressure Plate", "Fertile Soil Productions/Prop_Floor_Pressure_Plate"],
-			//["Floor Switch", "Fertile Soil Productions/Prop_Floor_Switch"],
-			//["Wall Curved Lg Base", "Fertile Soil Productions/Wall_Curved_Large_Base"],
 			["Wall Curved Lg Mid", "Fertile Soil Productions/Wall_Curved_Large_Middle"],
-			//["Wall Curved Lg Top", "Fertile Soil Productions/Wall_Curved_Large_Top"],
 			["Wall Curved Sm Base", "Fertile Soil Productions/Wall_Curved_Small_Base"],
 			["Wall Curved Sm Etched", "Fertile Soil Productions/Wall_Curved_Small_Etched"],
 			["Wall Curved Sm Mid", "Fertile Soil Productions/Wall_Curved_Small_Middle"],
-			//["Wall Curved Sm Top", "Fertile Soil Productions/Wall_Curved_Small_Top"],
 			["Wall Curved Sm Window", "Fertile Soil Productions/Wall_Curved_Small_Window"],
 			["Wall End Base", "Fertile Soil Productions/Wall_End_Base"],
 			["Wall End Mid", "Fertile Soil Productions/Wall_End_Middle"],
-			//["Wall End Top", "Fertile Soil Productions/Wall_End_Top"],
 			["Wall Straight Base", "Fertile Soil Productions/Wall_Straight_Base"],
 			["Wall Straight Circle", "Fertile Soil Productions/Wall_Straight_Circle"],
 			["Wall Straight Circle End", "Fertile Soil Productions/Wall_Straight_Circle_End"],
 			["Wall Straight Circle Fill", "Fertile Soil Productions/Wall_Straight_Circle_Fill"],
 			["Wall Straight Door", "Fertile Soil Productions/Wall_Straight_Door"],
 			["Wall Straight Doorway", "Fertile Soil Productions/Wall_Straight_Doorway"],
-			//["Wall Straight Doorway Lg", "Fertile Soil Productions/Wall_Straight_Doorway_Large"],
 			["Wall Straight Etched", "Fertile Soil Productions/Wall_Straight_Etched"],
 			["Wall Straight Etched End", "Fertile Soil Productions/Wall_Straight_Etched_End"],
 			["Wall Straight Mid", "Fertile Soil Productions/Wall_Straight_Middle"],
-			//["Wall Straight Top", "Fertile Soil Productions/Wall_Straight_Top"],
 			["Wall Straight Window", "Fertile Soil Productions/Wall_Straight_Window"],
 			["Wall Straight Windows", "Fertile Soil Productions/Wall_Straight_Windows"],
 			["Pillar Lg Base", "Fertile Soil Productions/Pillar_Large_Base"],
@@ -212,17 +96,11 @@ function getModels()
 			["Stairs Newel Base", "Fertile Soil Productions/Stairs_Newel_Base"],
 			["Stairs Newel Mid", "Fertile Soil Productions/Stairs_Newel_Middle"],
 			["Stairs Newel Top", "Fertile Soil Productions/Stairs_Newel_Top"],
-			//["Stairs Railing Flat Curved Lg", "Fertile Soil Productions/Stairs_Railing_Flat_Curved_Large"],
-			//["Stairs Railing Flat Curved Sm", "Fertile Soil Productions/Stairs_Railing_Flat_Curved_Small"],
-			//["Stairs Railing Flat Straight", "Fertile Soil Productions/Stairs_Railing_Flat_Straight"],
 			["Stairs Railing Ramp Curved Lg", "Fertile Soil Productions/Stairs_Railing_Ramp_Curved_Large"],
 			["Stairs Railing Ramp Curved Sm", "Fertile Soil Productions/Stairs_Railing_Ramp_Curved_Small"],
 			["Stairs Railing Ramp Straight", "Fertile Soil Productions/Stairs_Railing_Ramp_Straight"],
 			["Stairs Steps Curved", "Fertile Soil Productions/Stairs_Steps_Curved"],
 			["Stairs Steps Straight", "Fertile Soil Productions/Stairs_Steps_Straight"],
-			//["Balcony Railing Corner", "Fertile Soil Productions/Balcony_Railing_Corner"],
-			//["Balcony Railing Curved Lg", "Fertile Soil Productions/Balcony_Railing_Curved_Large"],
-			//["Balcony Railing Curved Sm", "Fertile Soil Productions/Balcony_Railing_Curved_Small"],
 			["Balcony Railing End", "Fertile Soil Productions/Balcony_Railing_End"],
 			["Balcony Railing Straight", "Fertile Soil Productions/Balcony_Railing_Straight"],
 			["Flag", "Fertile Soil Productions/Prop_Flag_1"],
@@ -230,12 +108,7 @@ function getModels()
 			["Flag 3", "Fertile Soil Productions/Prop_Flag_3"],
 			["Flag Stand Ext", "Fertile Soil Productions/Prop_Flag_Stand_Extension"],
 			["Flag Stand Top", "Fertile Soil Productions/Prop_Flag_Stand_Top"],
-			//["Flag 4", "DinV Studio/Flag_01"],
-			//["Flag 5", "DinV Studio/Flag_02"],
-			//["Flag 6", "DinV Studio/Flag_03"],
-			//["Mirror", "Fertile Soil Productions/Prop_Mirror"],
 			["Rug Corner Inner", "Fertile Soil Productions/Prop_Rug_Corner_Inner"],
-			//["Rug Corner Mid", "Fertile Soil Productions/Prop_Rug_Corner_Middle"],
 			["Rug Corner Outer", "Fertile Soil Productions/Prop_Rug_Corner_Outer"],
 			["Rug Corner Side", "Fertile Soil Productions/Prop_Rug_Corner_Side"],
 			["Vase", "Fertile Soil Productions/Prop_Vase"],
@@ -243,20 +116,14 @@ function getModels()
 			["Dungeon Floor 1", "DinV Studio/Floor_01"],
 			["Dungeon Floor 2", "DinV Studio/Floor_02"],
 			["Dungeon Floor 3", "DinV Studio/Floor_03"],
-			//["Dungeon Floor 4", "DinV Studio/Floor_04"],
 			["Dungeon Wall 1", "DinV Studio/Wall_01"],
 			["Dungeon Wall 2", "DinV Studio/Wall_02"],
 			["Dungeon Wall 3", "DinV Studio/Wall_03"],
 			["Dungeon Wall 3 Door", "DinV Studio/Wall_03_Door"],
 			["Dungeon Wall 3 Doorway", "DinV Studio/Wall_03_Doorway"],
 			["Dungeon Wall 4", "DinV Studio/Wall_04"],
-			//["Dungeon Wall 4 Door", "DinV Studio/Wall_04_Door"],
-			//["Dungeon Wall 4 Doorway", "DinV Studio/Wall_04_Doorway"],
 			["Dungeon Door 1", "DinV Studio/Door_01"],
-			//["Dungeon Door 2", "DinV Studio/Door_02"],
-			//["Dungeon Wall Border Lower", "DinV Studio/Wall_border_Lower"],
 			["Dungeon Wall Border Upper", "DinV Studio/Wall_border_Upper"],
-			//["Dungeon Wall Corner", "DinV Studio/Wall_corner"],
 			["Dungeon Wall Corner Half", "DinV Studio/Wall_corner_Half"],
 			["Dungeon Wall Corner Outer", "DinV Studio/Wall_corner_Outer"],
 			["Dungeon Window", "DinV Studio/Wall_window_02"],
@@ -265,68 +132,21 @@ function getModels()
 			["Dungeon Arch", "DinV Studio/Arc_01"],
 			["Chandelier", "DinV Studio/Chandelier_01_Short"],
 			["Barrel", "DinV Studio/Barrel_01"],
-			["Broken Barrel,", "DinV Studio/Barrel_broken"],
+			["Broken Barrel", "DinV Studio/Barrel_broken"],
 			["Treasure Chest", "DinV Studio/Chest_01"],
 			["Wooden Chair 1", "DinV Studio/Wooden chair_01"],
 			["Table 1", "DinV Studio/Table_01"],
 			["Wooden Crate", "DinV Studio/Wooden_box_01"],
 			["", "Fertile Soil Productions/Grass_Flat"],
-			["", "Fertile Soil Productions/Hill_Corner_Inner_2x2"],
 			["", "Fertile Soil Productions/Hill_Corner_Outer_2x2"],
 			["", "Fertile Soil Productions/Hill_Side"],
-			["", "Fertile Soil Productions/Hill_Side_On_Side"],
-			["", "Fertile Soil Productions/Hill_Side_Transition_From_Gentle"],
-			["", "Fertile Soil Productions/Hill_Side_Transition_To_Gentle"],
-			//------
-			["", "Fertile Soil Productions/Path_Center"],
-			["", "Fertile Soil Productions/Path_Corner_Inner_1x1"],
-			["", "Fertile Soil Productions/Path_Corner_Inner_2x2"],
-			["", "Fertile Soil Productions/Path_Corner_Outer_1x1"],
-			["", "Fertile Soil Productions/Path_Corner_Outer_2x2"],
-			["", "Fertile Soil Productions/Path_Corner_Outer_3x3"],
-			["", "Fertile Soil Productions/Path_Corner_Y_2x2"],
-			["", "Fertile Soil Productions/Path_Corner_Y_3x3"],
-			["", "Fertile Soil Productions/Path_Hill_Gentle_Center"],
-			["", "Fertile Soil Productions/Path_Hill_Gentle_Side"],
-			["", "Fertile Soil Productions/Path_Hill_Sharp_Center"],
-			["", "Fertile Soil Productions/Path_Hill_Sharp_Side"],
-			["", "Fertile Soil Productions/Path_Side"],
-			//------
-			["", "Fertile Soil Productions/Cliff_Base_Corner_Inner_Lg"],
-			["", "Fertile Soil Productions/Cliff_Base_Corner_Inner_Sm"],
-			["", "Fertile Soil Productions/Cliff_Base_Corner_Outer_Lg"],
-			["", "Fertile Soil Productions/Cliff_Base_Corner_Outer_Sm"],
-			["", "Fertile Soil Productions/Cliff_Base_Hill_Gentle"],
-			["", "Fertile Soil Productions/Cliff_Base_Hill_Sharp"],
-			["", "Fertile Soil Productions/Cliff_Base_Straight"],
-			["", "Fertile Soil Productions/Cliff_Base_Top_Joined_Hill_Gentle"],
-			["", "Fertile Soil Productions/Cliff_Base_Top_Joined_Hill_Sharp"],
-			//["", "Fertile Soil Productions/Cliff_Base_Waterfall"],
 			["", "Fertile Soil Productions/Cliff_Mid_Corner_Inner_Lg"],
-			["", "Fertile Soil Productions/Cliff_Mid_Corner_Inner_Sm"],
 			["", "Fertile Soil Productions/Cliff_Mid_Corner_Outer_Lg"],
 			["", "Fertile Soil Productions/Cliff_Mid_Corner_Outer_Sm"],
-			["", "Fertile Soil Productions/Cliff_Mid_Straight"],
-			//["", "Fertile Soil Productions/Cliff_Mid_Waterfall"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Inner_Lg"],
-			["", "Fertile Soil Productions/Cliff_Top_Corner_Inner_Sm"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Lg"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Sm"],
-			["", "Fertile Soil Productions/Cliff_Top_Hill_Gentle"],
-			["", "Fertile Soil Productions/Cliff_Top_Hill_Sharp"],
-			["", "Fertile Soil Productions/Cliff_Top_Straight"],
-			//["", "Fertile Soil Productions/Cliff_Top_Waterfall"],
-			["", "Fertile Soil Productions/Path_Steps_Center"],
-			["", "Fertile Soil Productions/Path_Steps_Edge"],
-			["", "Fertile Soil Productions/Path_Steps_Grass_Edge"],
-			["", "Fertile Soil Productions/Path_Steps_Grass_Edge_Top"]
-			/*//------
-			["", "Fertile Soil Productions/Prop_Bridge_Rope_End"],
-			["", "Fertile Soil Productions/Prop_Bridge_Rope_Middle"],
-			["", "Fertile Soil Productions/Prop_Bridge_Rope_Rope_Support"],
-			["", "Fertile Soil Productions/Prop_Cliff_Rock_1"],
-			["", "Fertile Soil Productions/Prop_Cliff_Rock_2"]
-			*///------
+			["", "Devils Garage/treeWide01"]
 			
 		]
 		// Add additional banks as desired
@@ -350,14 +170,6 @@ function getThemeDefs()
 			.bgSelCol = white,
 			.textSelCol = {0.5, 0.7, 0.9, 1},
 			.inactiveCol = {0.75, 0.85, 0.9, 1}
-		],
-		[
-			.name = "Bl" + chr(229) + "haj",
-			.bgCol = {245, 169, 184, 255} / 255,
-			.textCol = {0.06, 0.06, 0.1, 1},
-			.bgSelCol = {91, 206, 250, 255} / 255,
-			.textSelCol = white,
-			.inactiveCol = white
 		],
 		[
 			.name = "Dev Kit",
@@ -430,6 +242,14 @@ function getThemeDefs()
 			.bgSelCol = purple,
 			.textSelCol = lavender,
 			.inactiveCol = thistle
+		],
+		[
+			.name = "Helms",
+			.bgCol = {245, 169, 184, 255} / 255,
+			.textCol = {0.06, 0.06, 0.1, 1},
+			.bgSelCol = {91, 206, 250, 255} / 255,
+			.textSelCol = white,
+			.inactiveCol = white
 		],
 		[
 			.name = "Inverse",
@@ -1210,6 +1030,15 @@ g_menu = [
 				.clicked = false,
 				.submenu = [
 					[
+						.text = "Increase (+0.1)",
+						.action = "lightbrightness0.1",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
 						.text = "Increase (+1)",
 						.action = "lightbrightness1",
 						.selAction = "",
@@ -1228,8 +1057,8 @@ g_menu = [
 						.submenu = -1
 					],
 					[
-						.text = "Increase (+10)",
-						.action = "lightbrightness10",
+						.text = "Decrease (-0.1)",
+						.action = "lightbrightness-0.1",
 						.selAction = "",
 						.active = true,
 						.sel = false,
@@ -1248,15 +1077,6 @@ g_menu = [
 					[
 						.text = "Decrease (-5)",
 						.action = "lightbrightness-5",
-						.selAction = "",
-						.active = true,
-						.sel = false,
-						.clicked = false,
-						.submenu = -1
-					],
-					[
-						.text = "Decrease (-10)",
-						.action = "lightbrightness-10",
 						.selAction = "",
 						.active = true,
 						.sel = false,
@@ -1660,6 +1480,42 @@ g_menu = [
 				.sel = false,
 				.clicked = false,
 				.submenu = [
+					[
+						.text = "0.5",
+						.action = "possnapamt0.5",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "0.25",
+						.action = "possnapamt0.25",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "0.125",
+						.action = "possnapamt0.125",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "0.0625",
+						.action = "possnapamt0.0625",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
 					[
 						.text = "Grid unit",
 						.action = "possnapamtgrid",
@@ -2104,6 +1960,15 @@ g_menu = [
 				.submenu = -1
 			],
 			[
+				.text = "View map stats ...",
+				.action = "viewstats",
+				.selAction = "",
+				.active = true,
+				.sel = false,
+				.clicked = false,
+				.submenu = -1
+			],
+			[
 				.text = "View raw save file data ...",
 				.action = "viewfile",
 				.selAction = "",
@@ -2186,7 +2051,8 @@ struct mapObjRef
 	int cellIdx
 endStruct
 
-// Reduced dataset compared with mapObj
+/* active is a relic -- it used to e a reduced dataset of mapObj, but
+now mostly just recreates mapObj. Due for deprecation. */
 struct active
 	string name
 	var obj
@@ -2443,7 +2309,7 @@ function closeFileIfNeeded(_file, _needed)
 	endif
 return void
 
-/* Closes file, but only if allowed by g_freezeFile. */
+/* Clmses file, but only if allowed by g_freezeFile. */
 function closeFile(_file)
 	var closed = false
 	if !g_freezeFile then
@@ -3112,7 +2978,6 @@ function readObjMap(_file, _mapName)
 	
 	clear(g_theme.bgCol)
 	showLoadBox("Loading " + _mapName + ":" + chr(10) + "Reading file ...", true, false, false)
-	readMapProperties(_file, _mapName)
 	var redefHappened = false
 	
 	array queuedObj[0]
@@ -3238,6 +3103,8 @@ function readObjMap(_file, _mapName)
 		endif
 	repeat
 	
+	readMapProperties(_file, _mapName)
+	
 	updateCurColContext(true)
 	updateCamColContext(true)
 	g_lightIconLoader.show = []
@@ -3305,6 +3172,8 @@ function readMapProperties(_file, _mapName)
 		g_cam.dir = g_cam.pos + g_cam.fwd
 		g_cam.cell = getCellIdxFromPos(g_cam.pos)
 		g_cam.cellPos = getCellPosFromPos(g_cam.pos)
+		g_cur.cell = getCellIdxFromPos(g_cur.pos)
+		g_cur.cellPos = getCellPosFromPos(g_cur.pos)
 		updateCurWidgets()
 		updateViewport()
 	endif
@@ -3624,24 +3493,19 @@ function loadLightDefs()
 	newDef.name = "World Shadow Light"
 	newDef.lights = [ l ]
 	defs[4] = newDef
-	
 return defs
 
 /* Loads unmerged object definitions from the banks created in getModels(). */
 function loadObjDefs(_file)
-	var timer = time() // Debug timer
 	showLoadBox("Loading object definitions ...", true, false, false)
 	
 	var models = getModels()
 	array obj[len(models)]
-	array bankName[len(models)]	
-	var checkedDefs = []
-	var needWrite = false
+	array bankName[len(models)]
 	var modelCount = 0 // Prevent user from loading more than FUZE's limit of 124 models
 	
 	var i
 	var j
-	var loadResult
 	
 	for i = 0 to len(models) loop
 		// Apply bank name from first entry or auto-generate
@@ -3672,14 +3536,7 @@ Press (+)/F5 to close Celqi."
 				repeat
 			endif
 			
-			loadResult = loadObjDef(_file, models[i][j])
-			idx[j] = loadResult.def
-			
-			/* Save a list of applied defs. Anything left in the file 
-			afterwards must be a saved merged def that wasn't defined 
-			in the getModels() lists. */
-			checkedDefs = push(checkedDefs, loadResult.checked)
-			if loadResult.needWrite then needWrite = true endif
+			idx[j] = loadObjDef(_file, models[i][j])
 		repeat
 		obj[i] = idx
 	repeat
@@ -3689,15 +3546,12 @@ Press (+)/F5 to close Celqi."
 	
 	var result = [
 		.obj = obj,
-		.bankName = bankName,
-		.checked = checkedDefs,
-		.needWrite = needWrite
+		.bankName = bankName
 	]
-	//debugPrint(0, ["Object definition load time:", time() - timer])
 return result
 
-/* Loads an individual unmerged object definition. If its extent data has already been
-saved to file, load it; otherwise, calculate the extent. */
+/* Loads an individual unmerged object definition, which includes calculating 
+the extent. */
 function loadObjDef(_file, _modelDat)
 	objDef def
 	if len(_modelDat[0]) then
@@ -3710,47 +3564,13 @@ function loadObjDef(_file, _modelDat)
 		
 	def.file = _modelDat[1]
 	def.obj = loadModel(_modelDat[1])
-	
-	var needWrite = false
-	//var sectionIdx = findFileSection(_file, "objectDefs")
-	//var defIdx = findFileObjDef(_file, def.name, sectionIdx.start, sectionIdx.end)
-	
-	// If it's a new obj def, calculate object extent; otherwise load extent from file
-	//if defIdx.start < 0 then
-	if true then
-		var objExt = placeObject(def.obj, {0, 0, 0}, {1, 1, 1})
-		def.ext = getObjExtent(objExt, {0, 0, 0})
-		removeObject(objExt)
-		needWrite = true
-	else
-		chunk = getNextFileChunk(_file, defIdx.start) // Block
-		while inFileBlock(chunk) loop
-			chunk = getNextFileChunk(_file, chunk.nextIdx) // Unit
-			while inFileUnit(chunk) loop
-				chunk = getNextFileChunk(_file, chunk.nextIdx) // Field
-				var field = chunk.dat
-				
-				array elem[0]
-				while inFileField(chunk) loop
-					chunk = getNextFileChunk(_file, chunk.nextIdx) // Elem
-					elem = push(elem, chunk.dat)
-				repeat
-				
-				def = decodeObjDef(field, elem, def)
-			repeat
-		repeat
-	endif
-	
-	var result = [
-		.def = def,
-		.checked = def.name,
-		.needWrite = needWrite
-	]
-return result
+	var objExt = placeObject(def.obj, {0, 0, 0}, {1, 1, 1})
+	def.ext = getObjExtent(objExt, {0, 0, 0})
+	removeObject(objExt)
+return def
 
 /* Loads the merged object definitions, which are defined from within the program
-rather than in getModels(). _checked is a list of unmerged object definitions that
-have already been loaded; we know that any definition not on that list is merged. */
+rather than in getModels(). */
 function loadMergedObjDefs(_file)
 	showLoadBox("Reading merged object definitions ...", true, false, false)
 	
@@ -3793,12 +3613,10 @@ function loadMergedObjDefs(_file)
 			parentResult = assembleMergedObjDefParent(_file, chunk, def)
 			chunk = parentResult.chunk
 			def = parentResult.def
-			//isMerged = parentResult.isMerged
 			bankStr = parentResult.bankName
 		repeat
 		
 		// Assemble children
-		//while inFileBlock(chunk) and isMerged and def.name != "" loop
 		while inFileBlock(chunk) and def.name != "" loop
 			childResult = assembleMergedObjDefChild(_file, chunk, def, curChildIdx)
 			chunk = childResult.chunk
@@ -3869,7 +3687,6 @@ function assembleMergedObjDefParent(_file, _chunk, _def)
 	repeat
 	
 	var result = [
-		//.isMerged = isMerged,
 		.chunk = _chunk,
 		.def = _def,
 		.bankName = bankStr
@@ -3929,6 +3746,7 @@ function loadAssembledMergedObjDef(_def, _savedBankName)
 			defBank = j
 			defIdx = len(g_obj[j]) - 1
 			bankFound = true
+			
 			break
 		endif
 	repeat
@@ -4176,18 +3994,10 @@ function encodeObjDefs(_file)
 	for i = g_lightBank + 1 to len(g_obj) loop
 		for j = 0 to len(g_obj[i]) loop
 			if len(g_obj[i][j].children) then
-//					and (g_obj[i][j].name == "Banner on Pole" 
-//					or g_obj[i][j].name == "Rug Sm"
-//					or g_obj[i][j].name == "Angle Banner"
-//					or g_obj[i][j].name == "Torch in Holder") then
 				writeStr += blockStr("")
 				writeStr += unitStr("")
 				writeStr += fieldStr(".name")
 				writeStr += elemStr(g_obj[i][j].name)
-				writeStr += fieldStr(".ext.lo")
-				writeStr += elemStr(g_obj[i][j].ext.lo)
-				writeStr += fieldStr(".ext.hi")
-				writeStr += elemStr(g_obj[i][j].ext.hi)
 				
 				bankStr = ""
 				if len(g_obj[i][j].children) then
@@ -4379,16 +4189,10 @@ return void
 
 /* Creates an unmerged object definition from the file. */
 function decodeObjDef(_field, _elem, _def)
-	loop if _field == ".name" then
+	if _field == ".name" then
 		_def.name = decodeElem(_elem)
-		break endif
-	if _field == ".ext.lo" then
-		_def.ext.lo = decodeElem(_elem)
-		break endif
-	if _field == ".ext.hi" then
-		_def.ext.hi = decodeElem(_elem)
 		break
-	endif break repeat
+	endif
 return _def
 
 /* Returns the version of Celqi that saved a given file section. */
@@ -4436,6 +4240,82 @@ return _chunk.nextMarker != chr(31)
 // ----------------------------------------------------------------
 // STRING FUNCTIONS
 
+/* Converts string to lowercase. */
+function lower(_str)
+	var i
+	var val = -1
+	
+	for i = 0 to len(_str) loop
+		val = chrVal(_str[i])
+		
+		if val >= 65 and val <= 90 then
+			_str[i] = chr(val + 32)
+		endif
+	repeat
+return _str
+
+/* Converts string to uppercase. */
+function upper(_str)
+	var i
+	var val = -1
+	
+	for i = 0 to len(_str) loop
+		val = chrVal(_str[i])
+		
+		if val >= 97 and val <= 122 then
+			_str[i] = chr(val - 32)
+		endif
+	repeat
+return _str
+
+/* Puts two strings in alphabetical order. */
+function alphabetize(_str1, _str2)
+	var lower1 = lower(_str1)
+	var lower2 = lower(_str2)
+	var shortest = getShortestStr([ lower1, lower2 ])
+	var ordered
+	
+	if shortest == lower1 then
+		ordered = [ _str1, _str2 ]
+	else
+		ordered = [ _str2, _str1 ]
+	endif
+	
+	var i = 0
+	while i < len(shortest) loop
+		if chrVal(lower1[i]) < chrVal(lower2[i]) then
+			ordered[0] = _str1
+			ordered[1] = _str2
+			
+			break
+		else if chrVal(lower1[i]) > chrVal(lower2[i]) then
+			ordered[0] = _str2
+			ordered[1] = _str1
+			
+			break
+		endif endif
+		
+		i += 1
+	repeat
+return ordered
+
+/* Puts an array of strings in alphabetical order. */
+function alphabetize(_arr)
+	var i
+	var j
+	var ordered
+	
+	if len(_arr) then
+		for i = 1 to len(_arr) loop
+			for j = i to 0.9 step -1 loop
+				ordered = alphabetize(_arr[j], _arr[j - 1])
+				_arr[j] = ordered[1]
+				_arr[j - 1] = ordered[0]
+			repeat
+		repeat
+	endif
+return _arr
+
 /* The character at the _end index isn't included in the return string. */
 function strSlice(_str, _start, _end)
 	sliced  = ""
@@ -4468,6 +4348,19 @@ function getLongestStr(_strs)
 	repeat
 return longest
 
+/* Gets the shortest string in an array. An empty string will not
+count as being shortest. */
+function getShortestStr(_strs)
+	var shortest = ""
+	
+	var i
+	for i = 0 to len(_strs) loop
+		if len(_strs[i]) < len(shortest) or shortest == "" then
+			shortest = _strs[i]
+		endif
+	repeat
+return shortest
+
 /* Counts the number of a given character in a string. */
 function getCharTypeCount(_str, _char)
 	var count = 0
@@ -4485,9 +4378,15 @@ function strRemoveChar(_str, _char)
 	var i = 0
 	while i < len(_str) loop
 		if _str[i] == _char then
-			_str = _str[:i - 1] + _str[i + 1:]
+			if i > 0 then
+				_str = _str[:i - 1] + _str[i + 1:]
+			else
+				_str = _str[i + 1:]
+			endif
+			
 			i -= 1
 		endif
+		
 		i += 1
 	repeat	
 return _str
@@ -4785,6 +4684,7 @@ function strRemoveTrailingZeroes(_str)
 	endif
 return _str[:newLen]
 
+/* Generate a name based on a filepath. */
 function getDefaultDefName(_path)
 	var name = _path
 	var slashIdx = strFind(name, "/") + 1
@@ -5025,6 +4925,7 @@ function find(_arr, _item, _castToStr)
 		endif
 		if _arr[i] == _item then
 			idx = i
+			
 			break
 		endif
 	repeat
@@ -6107,11 +6008,11 @@ function showScrollText(_text)
 	var viewLine = 0
 	var viewH = tHeight() - borderSizeY * 2
 	var scrollW = borderSizeX * textWidth(" ")
-	var lineCount = getStrLineCount(_text, tWidth() - borderSizeX * 2).count// + borderSizeY
+	var lineCount = getStrLineCount(_text, tWidth() - borderSizeX * 2).count
 	var needScroll = lineCount > viewH
 	
 	if needScroll then
-		lineCount = getStrLineCount(_text, tWidth() - borderSizeX * 2 - 2).count// + borderSizeY
+		lineCount = getStrLineCount(_text, tWidth() - borderSizeX * 2 - 2).count
 		scrollW += textWidth("* ")
 	endif
 	
@@ -6134,7 +6035,6 @@ function showScrollText(_text)
 		lineMov = 0
 		
 		if scrollInputStarted(c) then
-			//lineMov = round(c.ly * floor(viewH / 5) + c.ry * 30 + c.up * floor(viewH / 5) - c.down * floor(viewH / 5))
 			movInc = floor(viewH / 5)
 			lineMov = round(c.ly * movInc + c.ry * 30 + c.up * movInc - c.down * movInc)
 		endif
@@ -6362,6 +6262,7 @@ function showSaveAs()
 	closeFile(mapFile)
 return newName != ""
 
+/* Scolds the user if more than one object definition has the same name. */
 function confirmUniqueDefNames()
 	array conflicts[0]
 	var i
@@ -6414,13 +6315,110 @@ Press (+)/F5 to close Celqi."
 	endif
 return void
 
+/* Shows total object count and number of each object used. */
+function showMapStats()
+	var i
+	var j
+	var objCount = 0
+	var name
+	var nameIdx
+	array objNames[0]
+	array objNamesTextArr[0]
+	var objNamesText = ""
+	
+	for i = 0 to len(g_cell) loop
+		for j = g_cellObjStart to len(g_cell[i]) loop
+			if !isMapObjRef(g_cell[i][j]) then
+				objCount += 1
+				name = getMapObjName(g_cell[i][j])
+				nameIdx = findAtSubIdx(objNames, name, 0)
+				
+				if nameIdx < 0 then
+					objNames = push(objNames, [ name, 1 ])
+					objNamesTextArr = push(objNamesTextArr, getMapStatsObjName(g_cell[i][j]))
+				else
+					objNames[nameIdx][1] += 1
+				endif
+			endif
+		repeat
+	repeat
+	
+	objNamesTextArr = alphabetize(objNamesTextArr)
+	var statText = ""
+	var newLineIdx
+	
+	for i = 0 to len(objNamesTextArr) loop
+		newLineIdx = find(objNamesTextArr[i], chr(10))
+		nameIdx = findAtSubIdx(objNames, objNamesTextArr[i][:newLineIdx - 1], 0)
+		statText += "(" + objNames[nameIdx][1] + ") " + objNamesTextArr[i]
+	repeat
+	
+	var mapExt = getMapExt()
+	mapExtStr = floatToStr(abs(mapExt.hi.x - mapExt.lo.x), 0) + " x " + floatToStr(abs(mapExt.hi.y - mapExt.lo.y), 0) 
+		+ " x " + floatToStr(abs(mapExt.hi.z - mapExt.lo.z), 0)
+	
+	statText = "Map: " + g_currentMapName + chr(10) + "Cell count: " + str(len(g_cell)) + chr(10) + 
+		"Map dimensions: " + mapExtStr + chr(10) + 
+		"Object count: " + str(objCount) + chr(10) + chr(10) + statText
+	
+	showScrollText(statText)
+return void
+
+/* Gets formatted object information for getMapStats(). */
+function getMapStatsObjName(_obj)
+return getMapStatsObjName(_obj, 0)
+
+function getMapStatsObjName(_obj, _tabDepth)
+	var name = getMapObjName(_obj)
+	
+	if len(_obj.children) then
+		name += chr(10)
+		
+		var i
+		var j
+		array nameTextArr[0]
+		array nameArr[0][0]
+		var childName
+		var nameIdx
+		
+		for i = 0 to len(_obj.children) loop
+			childName = getMapObjName(_obj.children[i])
+			nameIdx = findAtSubIdx(nameArr, childName, 0)
+			
+			if nameIdx < 0 then
+				nameArr = push(nameArr, [ childName, 1])
+				nameTextArr = push(nameTextArr, getMapStatsObjName(_obj.children[i], _tabDepth + 1))
+			else
+				nameArr[nameIdx][1] += 1
+			endif
+		repeat
+		
+		nameTextArr = alphabetize(nameTextArr)
+		var newLineIdx
+		var tabs = ""
+		
+		for i = 0 to _tabDepth + 1 loop
+			tabs += chr(9)
+		repeat
+		
+		for i = 0 to len(nameTextArr) loop
+			newLineIdx = find(nameTextArr[i], chr(10))
+			nameIdx = findAtSubIdx(nameArr, nameTextArr[i][:newLineIdx - 1], 0)
+			name += tabs + "(" + nameArr[nameIdx][1] + ") " + nameTextArr[i]
+		repeat
+	else
+		name += chr(10)
+	endif
+return name
+
 // ----------------------------------------------------------------
 // OBJECT FUNCTIONS
 
 	// ----------------------------------------------------------------
 	// EXTENT
 
-/* Builds extent data for an object. Slow due to the raycasts. Use sparingly. */
+/* Builds extent data for an object. Reflects actual object hitbox within 
+a margin of error. */
 function getObjExtent(_obj, _pos)
 	extent ext
 	
@@ -6453,7 +6451,7 @@ function findObjExtStartSize(_obj, _pos)
 	repeat
 	
 	if !hit then
-		debugPrint(2, ["ERROR: Object extent data could not be calculated."])
+		debugPrint(0, ["ERROR: Object extent data could not be calculated."])
 	endif
 	
 	result = [
@@ -6704,6 +6702,31 @@ function rebuildMergedObjExt(_obj, _grpExt)
 		_grpExt = rebuildMergedObjExt(_obj.children[i], _grpExt)
 	repeat
 return _grpExt
+
+/* Returns the extent of the loaded map. */
+function getMapExt()
+	var i
+	var minDim = {float_max, float_max, float_max}
+	var maxDim = {float_min, float_min, float_min}
+	
+	for i = 0 to len(g_cell) loop
+		if g_cell[i][0].x < minDim.x then minDim.x = g_cell[i][0].x endif
+		if g_cell[i][0].y < minDim.y then minDim.y = g_cell[i][0].y endif
+		if g_cell[i][0].z < minDim.z then minDim.z = g_cell[i][0].z endif
+		
+		if g_cell[i][0].x > maxDim.x then maxDim.x = g_cell[i][0].x endif
+		if g_cell[i][0].y > maxDim.y then maxDim.y = g_cell[i][0].y endif
+		if g_cell[i][0].z > maxDim.z then maxDim.z = g_cell[i][0].z endif
+	repeat
+	
+	minDim += g_cellExt.lo
+	maxDim += g_cellExt.hi
+	
+	var ext = [
+		.lo = minDim,
+		.hi = maxDim
+	]
+return ext
 
 	// ----------------------------------------------------------------
 	// OBJECT DEFINITIONS
@@ -7014,6 +7037,16 @@ function resolveMergedObjDefChanges(_missingRefs)
 	var i
 	for i = 0 to len(_missingRefs) loop
 		promptObjDefRelink(_missingRefs[i], 0)
+	repeat
+	
+	// Rebuild merged extents in case base filepaths were changed
+	var j
+	for i = 0 to len(g_obj) loop
+		for j = 0 to len(g_obj[i]) loop
+			if len(g_obj[i][j].children) then
+				g_obj[i][j].ext = rebuildMergedObjExt(g_obj[i][j])
+			endif
+		repeat
 	repeat
 	
 	removeLoadSpr()
@@ -7444,6 +7477,8 @@ function replaceObjDefRecursive(_checkObj, _oldInfo, _newObjs, _returnObjs)
 	]
 return result
 
+/* Finds the definiton for an instantiated object or returns a default definition 
+if none exists. */
 function getObjDef(_obj)
 	var def
 	var defIsValid = false
@@ -7554,7 +7589,7 @@ return placedObj
 
 /* Creates a light using light _t as a template. */
 function placeLightFromTemplate(_t)
-	_t.light = placeLightByType(_t.name, _t.col, _t.pos, _t.brightness, _t.res, _t.fwd, _t.range, _t.res)
+	_t.light = placeLightByType(_t.name, _t.col, _t.pos, _t.brightness, _t.res, _t.fwd, _t.spread, _t.range)
 	_t.spr = createSprite()
 	
 	loop if _t.name == "point" then
@@ -8246,9 +8281,9 @@ function initLightObj()
 	l.sprScale = {12, 12, 12}
 	l.pos = {0, 0, 0}
 	l.fwd = {0, 0, 1}
-	l.brightness = 50
+	l.brightness = 1
 	l.col = {1, 1, 1, g_sprAlpha}
-	l.spread = 0
+	l.spread = 1
 	l.res = 8
 	l.range = 100
 	l.name = ""
@@ -8423,15 +8458,15 @@ function setGrpLightsBrightness(_obj, _br, _type)
 return _obj
 
 /* Offsets brightess of all light sprites in a merged object by the given amount. */
-function offsetGrpLightsBrightness(_obj, _offset)
+function offsetGrpLightsBrightness(_obj, _offset, _decimals)
 	var i
 	for i = 0 to len(_obj.lights) loop
-		_obj.lights[i].brightness = clamp(_obj.lights[i].brightness + _offset, 0, 9999)
+		_obj.lights[i].brightness = roundDec(clamp(_obj.lights[i].brightness + _offset, 0, 9999), _decimals)
 		setLightBrightness(_obj.lights[i].light, _obj.lights[i].brightness)
 	repeat
 	
 	for i = 0 to len(_obj.children) loop
-		_obj.children[i] = offsetGrpLightsBrightness(_obj.children[i], _offset)
+		_obj.children[i] = offsetGrpLightsBrightness(_obj.children[i], _offset, _decimals)
 	repeat
 return _obj
 
@@ -9062,7 +9097,7 @@ function massSel()
 			newExt, 0.015, g_theme.textSelCol),
 		.pos = g_cur.pos,
 		.cursorPos = g_cur.pos,
-		.prevCell = g_cur.cell,
+		.prevCellPos = g_cur.cellPos,
 		.ext = newExt,
 		.cell = [ startCell ],
 		.newlyAddedCell = -1,
@@ -9148,7 +9183,7 @@ function updateMassSel()
 			setWireCubeObjExt(g_cur.massSel.obj, g_cur.massSel.ext)
 			
 			var dir = getCellDir(g_cur.pos - g_cur.prevPos)
-			updateAllMassSelContents(dir)
+			updateAllMassSelContents(dir, g_cur.cell, g_cur.cellPos)
 			g_cur.massSel.cursorPos = g_cur.pos
 		endif
 	endif
@@ -9156,13 +9191,13 @@ return void
 
 /* Recalculates mass selection contents as a result of expansion or contraction
 in a given direction. */
-function updateAllMassSelContents(_dir)
+function updateAllMassSelContents(_dir, _curCell, _curCellPos)
 	var cellW = getCellWidth()
 	var cellDim = {0, 0, 0}
-	var cursorCell = g_cur.cell
-	var cursorCellPos = g_cell[cursorCell][0]
+	var cursorCell = _curCell
+	var cursorCellPos = _curCellPos
 	var origCellPos = getCellPosFromPos(g_cur.massSel.pos)
-	var prevCursorCellPos = g_cell[g_cur.massSel.prevCell][0]
+	var prevCursorCellPos = g_cur.massSel.prevCellPos
 	var axisStart = [ 0, 0, 0 ]
 	
 	cellDim.x = round((origCellPos.x - cursorCellPos.x) / cellW)
@@ -9173,6 +9208,7 @@ function updateAllMassSelContents(_dir)
 	var negShrink = {0, 0, 0}
 	var i = 0
 	var j = 0
+	var expanded
 
 	if prevCursorCellPos != cursorCellPos then
 		// Cull cells
@@ -9213,10 +9249,14 @@ function updateAllMassSelContents(_dir)
 			endif
 		repeat
 		
-		expandMassSelBoundary(0, _dir, cursorCell, cursorCellPos, cellDim, axisStart, posShrink, negShrink)
-		axisStart = getMassSelAxisStart(0, axisStart, _dir, cellDim)
-		expandMassSelBoundary(1, _dir, cursorCell, cursorCellPos, cellDim, axisStart, posShrink, negShrink)
-		axisStart = getMassSelAxisStart(1, axisStart, _dir, cellDim)
+		expanded = expandMassSelBoundary(0, _dir, cursorCell, cursorCellPos, cellDim, axisStart, posShrink, negShrink)
+		if expanded then
+			axisStart = getMassSelAxisStart(0, axisStart, _dir, cellDim)
+		endif
+		expanded = expandMassSelBoundary(1, _dir, cursorCell, cursorCellPos, cellDim, axisStart, posShrink, negShrink)
+		if expanded then
+			axisStart = getMassSelAxisStart(0, axisStart, _dir, cellDim)
+		endif
 		expandMassSelBoundary(2, _dir, cursorCell, cursorCellPos, cellDim, axisStart, posShrink, negShrink)
 	endif
 
@@ -9236,7 +9276,7 @@ function updateAllMassSelContents(_dir)
 	
 	g_cur.massSel.contents = getMassSelContentsObj(g_cur.massSel.cell, false)
 	g_cur.massSel.newlyAddedCell = -1
-	g_cur.massSel.prevCell = cursorCell
+	g_cur.massSel.prevCellPos = cursorCellPos
 return void
 
 /* Gets cell objects for cells that are on the expanding boundary of the selection. */
@@ -9263,7 +9303,8 @@ function getMassSelCellObj(_axis, _skipArr, _focusCellPos)
 				and (!_skipArr[0] or g_cell[cellIdx][0][0] != _focusCellPos[0])
 				and (!_skipArr[1] or g_cell[cellIdx][0][1] != _focusCellPos[1])
 				and (!_skipArr[2] or g_cell[cellIdx][0][2] != _focusCellPos[2]) 
-				and len(g_cell[cellIdx]) > g_cellObjStart then
+				and len(g_cell[cellIdx]) > g_cellObjStart 
+				and cellIdx >= 0 then
 			g_cur.massSel.cell[i][1] = []
 			
 			cellPos = g_cell[cellIdx][0]
@@ -9304,10 +9345,12 @@ function getMassSelCellObj(_axis, _skipArr, _focusCellPos)
 				
 				if mergedObjIntersect(obj, collider) then
 					g_cur.massSel.cell[i][1] = push(g_cur.massSel.cell[i][1], j)
-					g_cell[objCell][objIdx].highlight = true
+					g_cell[objCell][objIdx].highlight = cellIdx + 1 // Needs to evaluate to true, so cell 0 needs to be offset
 				else
-					g_cell[objCell][objIdx].highlight = false
-					restoreDefaultObjCol(g_cell[objCell][objIdx])
+					if g_cell[objCell][objIdx].highlight == cellIdx + 1 then
+						g_cell[objCell][objIdx].highlight = false
+						restoreDefaultObjCol(g_cell[objCell][objIdx])
+					endif
 				endif
 				
 				g_blink.needUpdate = true
@@ -9374,6 +9417,7 @@ function expandMassSelBoundary(_axis, _dir, _focusCell, _focusCellPos, _cellDim,
 	negative expansion directions. */
 	var i = 0
 	var j
+	var updated = false
 	
 	while (_posShrink[_axis] == 0 and _negShrink[_axis] == 0 and _dir[_axis] and _cellDim[_axis] != 0) 
 			and (i == 0 or (_cellDim[offAxis[0]] > 0 and i <= _cellDim[offAxis[0]]) or (_cellDim[offAxis[0]] < 0 and i >= _cellDim[offAxis[0]])) loop
@@ -9385,6 +9429,7 @@ function expandMassSelBoundary(_axis, _dir, _focusCell, _focusCellPos, _cellDim,
 					and ((_cellDim[offAxis[1]] >= 0 and j >= _axisStart[offAxis[1]]) or (_cellDim[offAxis[1]] < 0 and j <= _axisStart[offAxis[1]])))
 					then
 				g_cur.massSel.cell = push(g_cur.massSel.cell, [ curPushCell, [] ])
+				updated = true
 			endif
 			
 			/* Index update depends on whether this is a positive or a negative 
@@ -9404,8 +9449,8 @@ function expandMassSelBoundary(_axis, _dir, _focusCell, _focusCellPos, _cellDim,
 		repeat
 		
 		if i != _cellDim[offAxis[0]] then
-			curCellPos += iCellPosInc
 			curCell = getAdj(curCell, curCellPos)[iAdjIdx]
+			curCellPos += iCellPosInc
 			curPushPos = curCellPos
 			curPushCell = curCell
 		endif
@@ -9416,7 +9461,7 @@ function expandMassSelBoundary(_axis, _dir, _focusCell, _focusCellPos, _cellDim,
 			i -= 1
 		endif
 	repeat
-return void
+return updated
 
 /* Returns an adjacent index corresponding to the checked cell's direction
 from the origin cell on the given axis. Adjacent indices are numbered from
@@ -9522,6 +9567,63 @@ function getMassSelContentsObj(_cellArr, _filterDup)
 		repeat
 	repeat
 return contents
+
+/* This evaluates everything in the mass selection area, Call it to deal
+with situations where the cursor warps or moves by more than one cell, which
+would otherwise cause it to skip evaluation for those cells. */
+function warpMassSelPos(_prevCurPos)
+	function warpMassSelPos_moveAlongAxis(_axis, _newPos, _prevCurPos)
+		var cellW = getCellWidth()
+		var dir = {0, 0, 0}
+		if g_cur.pos[_axis] > _prevCurPos[_axis] then
+			dir[_axis] = 1
+		else
+			dir[_axis] = -1
+		endif
+		
+		while (g_cur.pos[_axis] > _prevCurPos[_axis] and _newPos[_axis] <= g_cur.pos[_axis]) 
+				or (g_cur.pos[_axis] < _prevCurPos[_axis] and _newPos[_axis] >= g_cur.pos[_axis]) loop
+			showLoadBox("Recalculating mass selection area ...", false, true, false)
+			
+			g_cur.massSel.ext = [
+					.lo = {0, 0, 0},
+					.hi = _newPos - g_cur.massSel.pos
+				]
+				
+				updateAllMassSelContents(dir, getCellIdxFromPos(_newPos), getCellPosFromPos(_newPos))
+				g_cur.massSel.cursorPos = _newPos
+			
+			if _newPos[_axis] == g_cur.pos[_axis] then
+				break
+			endif
+			
+			if g_cur.pos[_axis] >= _prevCurPos[_axis] then
+				_newPos[_axis] += cellW
+				
+				if _newPos[_axis] > g_cur.pos[_axis] then
+					_newPos[_axis] = g_cur.pos[_axis]
+				endif
+			else
+				_newPos[_axis] -= cellW
+				
+				if _newPos[_axis] < g_cur.pos[_axis] then
+					_newPos[_axis] = g_cur.pos[_axis]
+				endif
+			endif
+		repeat
+	return _newPos
+	
+	showLoadBox("Recalculating mass selection area ...", false, true, false)
+	
+	var newPos = _prevCurPos
+	newPos = warpMassSelPos_moveAlongAxis(0, newPos, _prevCurPos)
+	newPos = warpMassSelPos_moveAlongAxis(1, newPos, _prevCurPos)
+	newPos = warpMassSelPos_moveAlongAxis(2, newPos, _prevCurPos)
+	
+	setWireCubeObjExt(g_cur.massSel.obj, g_cur.massSel.ext)
+	
+	removeLoadSpr()
+return void
 	
 	// ----------------------------------------------------------------
 	// OBJECT PROPERTIES
@@ -10268,25 +10370,6 @@ function setCellOutlineObjState(_obj, _states)
 	_obj.state = _states
 return _obj
 
-/* Sets visibility for a cell outline. */
-function setCellOutlineObjVisibility(_idx, _vis)
-	if g_cellOutline[_idx].isValid then
-		if !_vis then
-			var i
-			for i = 0 to len(g_cellOutline[_idx].obj) loop
-				setGenericObjVisibility(g_cellOutline[_idx].obj[i], false)
-			repeat
-		else
-			var i
-			for i = 6 to len(g_cellOutline[_idx].obj) loop
-				setGenericObjVisibility(g_cellOutline[_idx].obj[i], true)
-			repeat
-			
-			updateCellOutline(_idx)
-		endif
-	endif
-return void
-
 /* Completely removes a cell outline. */
 function removeCellOutlineObj(_obj)
 	var i
@@ -10315,6 +10398,8 @@ function updateCurCellOutlinePos()
 			if g_cur.cell == g_cam.cell then
 				updateCamCellOutlinePos()
 			endif
+			
+			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
 		endif
 	endif
 return void
@@ -10330,6 +10415,8 @@ function updateCamCellOutlinePos()
 				setObjectPos(g_cellOutline[1].grp, getCellPosFromPos(g_cam.pos))
 				setCellOutlineCol(1, g_theme.bgCol)
 			endif
+			
+			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
 		endif
 	endif
 return void
@@ -10366,15 +10453,15 @@ function hideCellOutlines()
 return void
 
 /* Changes a cell outline's color. */
-function setCellOutlineCol(_cellNum, _col)
+function setCellOutlineCol(_idx, _col)
 	if g_visibleCellOutlines then
-		if g_cellOutline[_cellNum].isValid then
+		if g_cellOutline[_idx].isValid then
 			var i
 			var j
 			
-			for i = 0 to len(g_cellOutline[_cellNum].obj) loop
-				for j = 0 to len(g_cellOutline[_cellNum].obj[i].obj) loop
-					setObjectMaterial(g_cellOutline[_cellNum].obj[i].obj[j], 
+			for i = 0 to len(g_cellOutline[_idx].obj) loop
+				for j = 0 to len(g_cellOutline[_idx].obj[i].obj) loop
+					setObjectMaterial(g_cellOutline[_idx].obj[i].obj[j], 
 						_col, 0, 1, 0.55)
 				repeat
 			repeat
@@ -10382,22 +10469,36 @@ function setCellOutlineCol(_cellNum, _col)
 	endif
 return void
 
-/* Sets the outline's wall visibility based on the presence of adjacent cells. */
-function updateCellOutline(_idx)
-	if g_cellOutline[_idx].isValid then
-		var adj = g_cell[_idx][1]
+/* Hides the common wall if the cells with outlines are adjacent. */
+function combineCellOutlines(_cellPos0, _cellPos1)
+	function combineCellOutlines_getState(_adjIdx)
 		var state = [
-			adj[14] == -1,
-			adj[12] == -1,
-			adj[16] == -1,
-			adj[10] == -1,
-			adj[22] == -1,
-			adj[4] == -1
+			_adjIdx != 14,
+			_adjIdx != 12,
+			_adjIdx != 16,
+			_adjIdx != 10,
+			_adjIdx != 22,
+			_adjIdx != 4
 		]
-		g_cellOutline[_idx] = 
-			setCellOutlineObjState(g_cellOutline[_idx], state)
+	return state
+	
+	if _cellPos0 != _cellPos1 and distance(_cellPos0, _cellPos1) <= getCellWidth() + 0.1 then
+		var dir = getCellDir(_cellPos1 - _cellPos0)
+		var adjIdx = getAdjIdxFromOffset(dir)
+		
+		g_cellOutline[0] = 
+			setCellOutlineObjState(g_cellOutline[0], combineCellOutlines_getState(adjIdx))
+		
+		adjIdx = getAdjIdxFromOffset(dir * -1)
+		g_cellOutline[1] = 
+			setCellOutlineObjState(g_cellOutline[1], combineCellOutlines_getState(adjIdx))
 	else
-		setCellOutlineObjVisibility(_idx, false)
+		var state = [ true, true, true, true, true, true ]
+		
+		g_cellOutline[0] = 
+			setCellOutlineObjState(g_cellOutline[0], state)
+		g_cellOutline[1] = 
+			setCellOutlineObjState(g_cellOutline[1], state)
 	endif
 return void
 
@@ -10887,7 +10988,7 @@ a unit vector for finding adjacent cells. */
 function getCellDir(_dir)
 	var i
 	for i = 0 to 3 loop
-		var rounded = roundDec(_dir[i], 6)
+			var rounded = roundDec(_dir[i], 6)
 		if rounded != 0 then
 			_dir[i] = getSign(rounded)
 		else
@@ -11066,7 +11167,6 @@ function getGrpCollisionBits(_obj, _cell)
 				colBits = getObjCollisionBits(appliedObj, _cell, g_cellBitLen, 0)
 				bitArr = [ _cell, colBits ]
 				curObj.gridBitList = push(curObj.gridBitList, bitArr)
-				//debugPrint(5, parents[depth][0].gridBitList)
 			endif
 			
 			depth -= 1
@@ -11675,12 +11775,18 @@ This is the initial release, so it likely has bugs. Known issues:
 				endif
 			repeat
 			
+			var prevCurPos = g_cur.pos
 			g_cur.pos = screenPosToWorldPos({gwidth() / 2, gheight() / 2}, 5, 
 				g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
 			g_cur.pos = {floor(g_cur.pos.x) + curFract.x, floor(g_cur.pos.y) + curFract.y, 
 				floor(g_cur.pos.z) + curFract.z}
 			updateCurWidgets()
 			updateCurContexts()
+			
+			if g_cur.mode == "masssel" then
+				warpMassSelPos(prevCurPos)
+			endif
+			
 			result.needClose = true
 			break
 		endif
@@ -11778,7 +11884,23 @@ This is the initial release, so it likely has bugs. Known issues:
 				g_cur.posSnapAmount = 0
 			endif
 			
-			loop if _sel.action == "possnapamt0.01" then
+			loop if _sel.action == "possnapamt0.5" then
+				g_cur.posSnapAmount = 0.5
+				result.needClose = true
+				break endif
+			if _sel.action == "possnapamt0.25" then
+				g_cur.posSnapAmount = 0.25
+				result.needClose = true
+				break endif
+			if _sel.action == "possnapamt0.125" then
+				g_cur.posSnapAmount = 0.125
+				result.needClose = true
+				break endif
+			if _sel.action == "possnapamt0.0625" then
+				g_cur.posSnapAmount = 0.0625
+				result.needClose = true
+				break endif
+			if _sel.action == "possnapamt0.01" then
 				g_cur.posSnapAmount += 0.01
 				break endif
 			if _sel.action == "possnapamt0.1" then
@@ -11799,10 +11921,12 @@ This is the initial release, so it likely has bugs. Known issues:
 			if _sel.action == "possnapamtgrid" then
 				g_cur.posSnapAmount = -1
 				unitSnap = true
+				result.needClose = true
 				break
 			else
 				var newAmt = input("Position snap amount", false)
 				g_cur.posSnapAmount = float(newAmt)
+				result.needClose = true
 				break
 			endif break repeat
 			
@@ -11944,8 +12068,8 @@ This is the initial release, so it likely has bugs. Known issues:
 				if actionStr == "5" then
 					offset = 5
 					break endif
-				if actionStr == "10" then
-					offset = 10
+				if actionStr == "0.1" then
+					offset = 0.1
 					break endif
 				if actionStr == "-1" then
 					offset = -1
@@ -11954,11 +12078,11 @@ This is the initial release, so it likely has bugs. Known issues:
 					offset = -5
 					break
 				else
-					offset = -10
+					offset = -0.1
 					break
 				endif break repeat
 				
-				g_cur.activeObj = offsetGrpLightsBrightness(g_cur.activeObj, offset)
+				g_cur.activeObj = offsetGrpLightsBrightness(g_cur.activeObj, offset, 1)
 			endif
 			
 			var actionMenu = getParentFromChain(_menu, _sel.idxChain)
@@ -12229,6 +12353,13 @@ This is the initial release, so it likely has bugs. Known issues:
 			actionMenu[_sel.idxChain[len(_sel.idxChain) - 1]].text =
 				"Show cell outlines (" + getBoolStr(g_visibleCellOutlines) + ")"
 			result.menu = updateMenuChain(_sel.idxChain, _menu, actionMenu)
+		endif
+		
+		if _sel.action == "viewstats" then
+			showMapStats()
+			
+			result.needClose = true
+			break
 		endif
 		
 		if _sel.action == "viewfile" then
@@ -14003,18 +14134,10 @@ return void
 /* Checks whether a directional input should cause scrolling and, if so,
 updates g_cDat with the input info and returns true. */
 function scrollInputStarted(_c)
-	var started = 
-		(
-			g_cDat[g_cIdx.lxy].count <= 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateInit
-			or 
-			g_cDat[g_cIdx.lxy].count > 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateRep
-		)
-		and 
-		(
-			(abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3) or (abs(_c.rx) > 0.3 or abs(_c.ry) > 0.3)
-			or 
-			(_c.up or _c.down)
-		)
+	var started = (g_cDat[g_cIdx.lxy].count <= 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateInit
+		or g_cDat[g_cIdx.lxy].count > 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateRep)
+		and ((abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3) or (abs(_c.rx) > 0.3 or abs(_c.ry) > 0.3)
+		or (_c.up or _c.down))
 	
 	if started then
 		updateLxyStarted()
@@ -14027,18 +14150,10 @@ return started
 /* Checks whether a directional input should cause menu navigation and, if so,
 updates g_cDat with the input info and returns true. */
 function menuDirInputStarted(_c, _kbActive)
-	var started = 
-		(
-			_kbActive // _kbActive bypasses the repeat rate in order to use the keyboard's built-in repeat rate.
-			or 
-			(g_cDat[g_cIdx.lxy].count <= 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateInit)
-			or 
-			(g_cDat[g_cIdx.lxy].count > 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateRep)
-		)
-		and 
-		(
-			abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3 or _c.up or _c.down or _c.left or _c.right
-		)
+	var started = (_kbActive // _kbActive bypasses the repeat rate in order to use the keyboard's built-in repeat rate.
+		or (g_cDat[g_cIdx.lxy].count <= 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateInit)
+		or (g_cDat[g_cIdx.lxy].count > 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateRep))
+		and (abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3 or _c.up or _c.down or _c.left or _c.right)
 	
 	if started then
 		updateLxyStarted()
@@ -14051,18 +14166,10 @@ return started
 /* Checks whether a left stick input has occurred and, if so, updates g_cDat 
 with the input info and returns true. */
 function leftStickInputStarted(_c, _kbActive)
-	var started = 
-		(
-			_kbActive // _kbActive bypasses the repeat rate in order to use the keyboard's built-in repeat rate.
-			or
-			(g_cDat[g_cIdx.lxy].count <= 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateInit)
-			or 
-			(g_cDat[g_cIdx.lxy].count > 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateRep)
-		)
-		and 
-		(
-			abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3
-		)
+	var started = (_kbActive // _kbActive bypasses the repeat rate in order to use the keyboard's built-in repeat rate.
+		or (g_cDat[g_cIdx.lxy].count <= 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateInit)
+		or (g_cDat[g_cIdx.lxy].count > 1 and time() - g_cDat[g_cIdx.lxy].lastTime >= g_rateRep))
+		and (abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3)
 	
 	if started then
 		updateLxyStarted()
@@ -14611,7 +14718,7 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 	_lastColContext.allCollisions = _getAllCollisions
 return _lastColContext
 
-/* updateCurContext() as applied to cursor. */
+/* updateColContext() as applied to cursor. */
 function updateCurColContext(_flush)
 	if _flush then
 		g_cur.lastColContext = flushColContext(g_cur.lastColContext)
@@ -14621,7 +14728,7 @@ function updateCurColContext(_flush)
 		floorVec(g_cur.pos) + 0.5, {0, 0, 1}, {0, 1, 0}, g_cur.ext, {1, 1, 1}, g_cur.collider, true, 0, {0, 0, 0})
 return void
 
-/* updateCurContext() as applied to camera. */
+/* updateColContext() as applied to camera. */
 function updateCamColContext(_flush)
 	if _flush then
 		g_cam.lastColContext = flushColContext(g_cam.lastColContext)
@@ -14861,6 +14968,7 @@ function moveCur(_c)
 	endif
 return void
 
+/* Updates stuff that changes based on cursor state. */
 function updateCurContexts()
 	var curCellResult = updateCellContext(g_cur.cell, g_cur.cellPos, g_cur.pos, true)
 	g_cur.cell = curCellResult.cell
@@ -15048,6 +15156,7 @@ function advanceCurMode(_c)
 	endif endif	
 return void
 
+/* Removes 3D widgets associated with a terminated cursor mode. */
 function endCurMode(_mode)
 	loop if _mode == "rotate" then
 		removeRotObj(g_cur.rotator)
@@ -15384,6 +15493,8 @@ function setPhotoMode(_isEnabled)
 	set3dUiVisibility(!_isEnabled)
 return void
 
+/* Checks whether the universal blink state has changed and stores the 
+appropriate data in g_blink. */
 function updateBlink()
 	if g_blink.state then
 		if time() - g_blink.lastUpdateTime >= g_blink.dur1 then
@@ -15419,16 +15530,16 @@ function debug()
 	
 	debugPrint(999, ["getGrpCollisionBits()", timer1, "getGrpCollisionBits2()", timer2])
 	*/
-	/*
+	
 	textSize(g_menuTextSize * 0.6)
 	ink(white)
 	printAt(15, 5, "CAM CELL: " + g_cam.cell)
 	printAt(15, 6, "CAM CELLPOS: " + vec3ToStr(g_cam.cellPos, 2))
-	printAt(15, 7, "CURSOR CAM ADJ: ")
-	printAt(15, 8, g_cell[g_cam.cell][1])
+	//printAt(15, 7, "CURSOR CAM ADJ: ")
+	//printAt(15, 8, g_cell[g_cam.cell][1])
 	
-	//printAt(15, 7, "CURSOR CELL: " + g_cur.cell)
-	//printAt(15, 8, g_cur.lastColContext.collision)
+	printAt(15, 7, "CURSOR CELL: " + g_cur.cell)
+	printAt(15, 8, g_cur.lastColContext.collision)
 		
 	printAt(30, 10, "g_lightIcons")
 	printAt(30, 11, g_lightIcons)
@@ -15446,8 +15557,8 @@ function debug()
 		printAt(36, 20, decodeIdx(getMapObjfromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
 	endif
 	
-	printAt(0, 36, g_cur.scale)
-	printAt(0, 37, getPosFromGridIdx(g_cur.cell, 13, 20))
+	//printAt(0, 36, g_cur.scale)
+	//printAt(0, 37, getPosFromGridIdx(g_cur.cell, 13, 20))
 	
 	textSize(gheight() / 45)
 	ink(green)
@@ -15462,7 +15573,7 @@ function debug()
 			printAt(0, 21 + i, getMapObjName(g_cur.massSel.contents[i]))
 		repeat
 	endif
-	*/
+	
 return void
 
 /* Draws a debug line that automaticaly disappears after _dur seconds. */
@@ -15628,7 +15739,7 @@ function loadCelqiImg(_idx)
 		l,l,o,_,_,_,_,_,_,_,_,o,o,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 8
 		l,o,_,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l, // 9
 		l,o,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l, // 10
-		l,o,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l, // 11
+		l,o,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,,, // 11
 		o,_,_,_,_,_,_,_,o,_,_,o,_,_,o,_,o,o,_,_,_,o,o,_,o,_,_,_,_,_,_,o, // 12
 		o,_,_,_,_,_,_,_,o,_,o,_,_,o,_,o,_,_,_,o,_,_,_,_,_,o,_,_,_,_,_,o, // 13
 		o,_,_,_,_,_,_,_,_,o,o,o,o,o,o,_,_,o,o,_,_,_,o,o,_,_,_,_,_,_,_,o, // 14
@@ -15672,7 +15783,7 @@ function loadMergedImg()
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 8
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 9
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 10
-		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 11
+		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,,,,, // 11
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 12
 		l,l,o,_,o,_,o,_,o,_,o,_,o,o,o,_,o,o,o,_,_,o,o,_,o,o,o,_,_,o,l,l, // 13
 		l,l,o,_,o,_,o,_,o,o,o,_,o,_,_,_,o,_,o,_,o,_,_,_,o,_,_,_,_,o,l,l, // 14
@@ -15691,7 +15802,7 @@ function loadMergedImg()
 		l,l,o,o,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 27
 		l,l,l,l,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 28
 		l,l,l,l,o,o,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 29
-		l,l,l,l,l,l,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 30
+		l,lll,l,l,l,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 30
 		l,l,l,l,l,l,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,l,l // 31
 	]
 	
@@ -15801,7 +15912,7 @@ function loadSpotLightImg()
 		l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,o,_,_,o,_,o,l,l,l,l,l, // 8
 		l,l,l,l,l,l,l,l,l,l,l,l,o,o,o,o,o,l,l,l,o,_,_,_,o,_,o,l,l,l,l,l, // 9
 		l,l,l,l,l,l,l,l,l,l,l,l,o,_,_,_,o,o,o,o,o,_,_,_,o,_,o,l,l,l,l,l, // 10
-		o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,_,_,o,_,_,_,o,_,o,l,l,l,,,,, // 11
+		o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,_,_,o,_,_,_,o,_,o,l,l,l,l,l, // 11
 		o,_,o,_,_,o,_,_,_,o,_,_,_,o,_,_,_,o,_,_,o,_,_,_,o,_,o,l,l,l,l,l, // 12
 		o,_,o,_,o,_,_,_,o,_,_,_,o,_,_,_,o,o,_,_,o,_,_,_,o,_,o,l,l,l,l,l, // 13
 		o,_,o,o,_,_,_,o,_,_,_,o,_,_,_,o,_,o,_,_,o,_,_,_,o,_,o,l,l,l,l,l, // 14
@@ -15844,7 +15955,7 @@ function loadWorldLightImg()
 		l,l,l,l,l,l,o,_,_,_,_,_,_,o,o,o,o,o,o,_,_,_,_,_,_,o,l,l,l,l,l,l, // 8
 		l,l,l,l,l,l,l,o,_,_,_,o,o,_,_,_,_,_,_,o,o,_,_,_,o,l,l,l,l,l,l,l, // 9
 		l,l,l,l,l,l,l,o,_,_,o,_,_,_,_,_,_,_,_,_,_,o,_,_,o,l,l,l,l,l,l,l, // 10
-		l,l,l,l,l,l,o,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,o,_,_,o,l,l,l,l,,,,, // 11
+		l,l,l,l,l,l,o,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,o,_,_,o,l,l,l,l,l,l, // 11
 		l,l,l,l,l,l,o,_,_,o,_,_,_,_,_,o,o,_,_,_,_,_,o,_,_,o,l,l,l,l,l,l, // 12
 		l,l,l,l,o,o,_,_,_,o,o,o,o,o,o,_,_,o,o,o,o,o,o,_,_,_,o,o,l,l,l,l, // 13
 		l,l,o,o,_,_,_,_,o,_,o,o,o,o,o,_,_,o,o,o,o,o,_,o,_,_,_,_,o,o,l,l, // 14
