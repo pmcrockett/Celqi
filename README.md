@@ -70,7 +70,7 @@ Move cursor forward/backward/left/right - left stick (i/k/j/l)
 Move cursor up/down/left/right - L + left stick (o/u/j/l)
 Cycle edit mode - R (space)
 Start mass selection - B (\)
-Cancel mass selection (while selecting) - B (\)
+Cancel mass selection (while selecting) - B (backslash)
 Confirm mass selection (while selecting) - A (enter)
 Place current brush object - A (enter)
 

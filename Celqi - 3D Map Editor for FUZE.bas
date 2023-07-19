@@ -1,15 +1,20 @@
-/* TODO: 
+/* THIS UPDATE:
+Save cells to increase load speed
+Begin refactoring to support core loader
+
+TODO: 
+
+* deleting multiple selected objects can still throw an index oob error 
+cell outlines
+	* warping cursor by selecting from obj origin needs to update outline position
+	* cursor cell outline needs to accommodate not creating cells via cusor movement
+* object deletion needs to also delete cells if necessary
+* Light icons don't load properly if they're near cell 0 and camera loads into distant cell
+* Light icons stop updating after deleting some objects (e.g. delete all but light in Castle Test)
+* Need a new check to prevent duplicate objects
+
 
 active is now pointless -- just replace it with mapObj
-
-Changed
-	Add string case functions
-	Add map stats
-	Definition load always rebuild extents, allowing for arbitrary filepath swapping
-	Fix light spread being wrong default
-	Add commonly used position values to menu
-	Make common wall between visualized cells invisible
-	Fix bugs in mass selection that caused objects to sometimes not get highlighted or selected
 
 The general rule here is to avoid copying large chunks of data into
 local execution contexts in order to optimize RAM use. This means that
@@ -55,7 +60,7 @@ Please note that FUZE has an internal limit of 124 models loaded, so you cannot
 have more than 124 object definitions. You can safely delete the 'Castle Demo' 
 bank to free up space if you aren't using its definitions in your own maps.
 */
-
+// CORE LOADER
 function getModels()
 	var models = [
 		// Bank 1
@@ -145,9 +150,8 @@ function getModels()
 			["", "Fertile Soil Productions/Cliff_Mid_Corner_Outer_Sm"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Inner_Lg"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Lg"],
-			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Sm"],
-			["", "Devils Garage/treeWide01"]
-			
+			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Sm"]//,
+			//["", "Devils Garage/treeWide01"]			
 		]
 		// Add additional banks as desired
 	]
@@ -322,6 +326,7 @@ return themeDef
 // GLOBAL SETUP
 
 // System setup
+var g_editor = true // Are we in the editor? false = game/core loader, true = editor
 var g_version = "1.0.00"
 var g_freezeFile = false // Setting to true will block file closure and freeze the save file in its current state
 var g_breakpoint = true // Enable or disable debug breakpoints
@@ -429,7 +434,7 @@ function initCell()
 	for i = 0 to len(g_cellOutline) loop
 		g_cellOutline[i] = outlineEntry
 	repeat
-	addCell({2.5, 2.5, 2.5})
+	//addCell({2.5, 2.5, 2.5})
 return void
 
 /* List of selected objects. Contains entries in the form of
@@ -455,7 +460,7 @@ var g_cam = [
 	.delta = {0, 0, 0}, // Movement difference from last frame
 	.worldMovement = false, // Does camera movement happen on world axes (true) or camera axes (false)?
 	.fov = 60,
-	.cell = 0, // Current cell that the camera is in
+	.cell = -1, // Current cell that the camera is in
 	.cellPos = {2.5, 2.5, 2.5},
 	.drawObjLabels = false,
 	.collisionMode = 0,
@@ -487,7 +492,7 @@ function initCam()
 	g_cam.r = {-1, 0, 0}
 	g_cam.up = {0, 1, 0}
 	g_cam.delta = {0, 0, 0}
-	g_cam.cell = 0
+	g_cam.cell = -1
 	g_cam.cellPos = getCellPosFromPos(g_cam.pos)
 	g_cam.lastColContext = [
 		.cell = -1,
@@ -532,7 +537,7 @@ var g_cur = [
 	.fwd = {0, 0, 1},
 	.up = {0, 1, 0},
 	.massSel = -1, // Data about mass selecion state
-	.cell = 0, // Cell that the cursor is currently in
+	.cell = -1, // Cell that the cursor is currently in
 	.cellPos = {2.5, 2.5, 2.5},
 	.lastColContext = [ // Data about object collisions
 		.cell = -1,
@@ -581,7 +586,7 @@ function initCur()
 	g_cur.pos2d = worldPosToScreenPos({0.5, 0.5, 0.5}, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
 	g_cur.fwd = {0, 0, 1}
 	g_cur.up = {0, 1, 0}
-	g_cur.cell = 0
+	g_cur.cell = -1
 	g_cur.cellPos = getCellPosFromPos(g_cur.pos)
 	g_cur.lastColContext = [
 		.cell = -1,
@@ -608,6 +613,7 @@ var g_blink = [
 	.dur0 = 0.25, // Duration of state 0
 	.dur1 = 0.75 // Duration of state 1
 ]
+var g_lastLoadUpdateTime = 0
 var g_needWritePrefs = false // Set when a menu item wants to save itself as an editor preference
 var g_photoMode = false // Whether the editor is in photo mode
 var g_currentMapName = ""
@@ -732,20 +738,24 @@ repeat
 // ----------------------------------------------------------------
 // LOAD OBJECT DEFINITIONS AND MAP
 
+//debugPrint(0, [encodeIntVec({1, 0, 1})])
+
 showSplash(4) // Change argument to 0 to disable splash screen
 
 var g_mapFile = open() // Subsequent opens must use openFile() rather than open() to respect g_freezeFile's state
 //clearFile(g_mapFile) // Uncomment to fully erase saved data on startup
-//debugFile(g_mapFile) // Uncomment to view file before launching the editor
+debugFile(g_mapFile) // Uncomment to view file before launching the editor
 
 readEdPrefs(g_mapFile)
 array g_menu[0] // Create menu because map load needs to see it
 
 // Arrange model data in a code-readable format
 var g_loadResult = loadObjDefs(g_mapFile)
+removeLoadSpr()
 var g_obj = g_loadResult.obj
 var g_bankName = g_loadResult.bankName
 var g_missingRefs = loadMergedObjDefs(g_mapFile)
+removeLoadSpr()
 resolveMergedObjDefChanges(g_missingRefs)
 confirmUniqueDefNames()
 writeObjDefs(g_mapFile)
@@ -761,9 +771,10 @@ if len(g_mapNames) then
 	var queuedMap = triggerMapLoad(g_mapFile, true)
 	
 	if queuedMap != "" then
-		clearMap(true)
+		clearMap()
+		initEdForClearedMap()
 		g_currentMapName = queuedMap
-		readObjMap(g_mapFile, g_currentMapName)
+		initEdForLoadedMap(readObjMap(g_mapFile, g_currentMapName))
 	endif
 endif
 
@@ -772,6 +783,27 @@ initCellOutlines()
 g_loadResult = -1// Free memory
 g_missingRefs = -1 // Free memory
 closeFile(g_mapFile)
+
+/*
+var i
+var j
+var k
+for i = 0 to len(g_cell) loop
+	for j = g_cellObjStart to len(g_cell[i]) loop
+		if !isMapObjRef(g_cell[i][j]) then
+			var cache = []
+			for k = 0 to len(g_cell[i][j].gridBitList) loop
+				if contains(cache, g_cell[i][j].gridBitList[k][0]) then
+					debugPrint(0, ["repeat found", getMapObjName(g_cell[i][j]),
+						g_cell[i][j].pos, "cell " + g_cell[i][j].gridBitList[k][0]])
+				endif
+				
+				cache = push(cache, g_cell[i][j].gridBitList[k][0])
+			repeat
+		endif
+	repeat
+repeat
+*/
 
 // ----------------------------------------------------------------
 // MENU ARRAYS
@@ -1986,12 +2018,10 @@ g_menu = [
 
 loop
 	clear()
-	
 	updateBlink()
-	
 	g_kb = getKeyboardBuffer()
 	drawObjects()
-	
+
 	if !g_photoMode then
 		updateLightSpr()
 		drawSprites()
@@ -2032,6 +2062,7 @@ repeat
 /* Stores info about objects placed in the map. Distinct from active, which is
 a reduced dataset, and objDef, which is the basic info need to instantiate an
 active or a mapObj. */
+// +CORE LOADER
 struct mapObj
 	var obj // Handle of an object or a group, or -1 if the mapObj contains a light
 	vector fwd
@@ -2047,12 +2078,14 @@ struct mapObj
 endStruct
 
 // Points to the cell and index that contains the object's data
+// +CORE LOADER
 struct mapObjRef
 	int cellIdx
 endStruct
 
 /* active is a relic -- it used to e a reduced dataset of mapObj, but
 now mostly just recreates mapObj. Due for deprecation. */
+// +CORE LOADER
 struct active
 	string name
 	var obj
@@ -2071,6 +2104,7 @@ endStruct
 array of mapObj or active. They do not exist on their own. All light types use the
 same kind of lightObj (distinguished by the name field), so not all fields are always
 relevant to a given light. */
+// +CORE LOADER
 struct lightObj
 	var light
 	string name
@@ -2094,12 +2128,14 @@ struct button
 endStruct
 
 // Bounding box that describes the dimensions of an object.
+// +CORE LOADER
 struct extent
 	vector lo
 	vector hi
 endStruct
 
 // Data used to instantiate a mapObj or an active.
+// +CORE LOADER
 struct objDef
 	string name
 	string file
@@ -2309,7 +2345,7 @@ function closeFileIfNeeded(_file, _needed)
 	endif
 return void
 
-/* Clmses file, but only if allowed by g_freezeFile. */
+/* Closes file, but only if allowed by g_freezeFile. */
 function closeFile(_file)
 	var closed = false
 	if !g_freezeFile then
@@ -2323,7 +2359,9 @@ to a new index when closed. This allows us to write data of an arbitrary size in
 middle of a file without worrying about overwriting what comes after it (if larger
 than the original data) or leaving garbage data (if smaller than the original data). */
 function openFileEndBuffer(_file, _idx)
-	var unalloIdx = findFileChar(_file, chr(127), _idx)
+	//var unalloIdx = findFileChar(_file, chr(127), _idx)
+	var unalloIdx = getEofIdx(_file)
+	
 	seek(_file, _idx)
 return read(_file, unalloIdx - _idx)
 
@@ -2375,9 +2413,10 @@ function writeObjMap(_file, _mapName, _needFileOpen)
 	showLoadBox("Saving '" + _mapName + "' ...", true, false, false)
 	_file = openFileIfNeeded(_file, _needFileOpen)
 	
+	var mapCells = encodeCellMap(_file, _mapName, versionStr())	
 	var mapEnc = encodeObjMap(_file, _mapName, versionStr())
 	var mapProps = encodeMapProperties(_file, _mapName, versionStr())
-	var writeStr = mapEnc.enc + mapProps.enc
+	var writeStr = mapCells.enc + mapEnc.enc + mapProps.enc
 	writeFileSegment(_file, writeStr, mapEnc.writeStart, mapProps.writeEnd)
 	
 	closeFileIfNeeded(_file, _needFileOpen)
@@ -2452,6 +2491,8 @@ function writeEdPrefs(_file, _needFileOpen)
 	writeStr += elemStr(g_cam.fov)
 	writeStr += fieldStr("g_cam.drawObjLabels")
 	writeStr += elemStr(g_cam.drawObjLabels)
+	writeStr += fieldStr("g_cam.worldMovement")
+	writeStr += elemStr(g_cam.worldMovement)
 	writeStr += fieldStr("g_theme.name")
 	writeStr += elemStr(g_theme.name)
 	writeStr += fieldStr("g_cur.posSnapMode")
@@ -2466,8 +2507,8 @@ function writeEdPrefs(_file, _needFileOpen)
 	writeStr += elemStr(g_cur.scaleSnapMode)
 	writeStr += fieldStr("g_cur.scaleSnapAmount")
 	writeStr += elemStr(g_cur.scaleSnapAmount)
-	writeStr += fieldStr("g_cam.worldMovement")
-	writeStr += elemStr(g_cam.worldMovement)
+	writeStr += fieldStr("g_visibleCellOutlines")
+	writeStr += elemStr(g_visibleCellOutlines)
 	writeFileSegment(_file, writeStr, sectionIdx.start, sectionIdx.end)
 	
 	closeFileIfNeeded(_file, _needFileOpen)
@@ -2915,6 +2956,7 @@ return queuedMap
 /* Light data are saved separately in the file from object data. This function
 takes the object data and the light data and assembles them into a complete
 object. */
+// +CORE LOADER
 function buildObjMapMergedLight(_obj, _lightList)
 	var i
 	for i = 0 to len(_obj.lights) loop
@@ -2940,7 +2982,47 @@ function buildObjMapMergedLight(_obj, _lightList)
 	]
 return result
 
+/* Constucts saved cell layout. */
+function readCellMap(_file, _mapName)
+	var sectionIdx = findFileSection(_file, "cellMap" + _mapName)
+	
+	var field
+	var chunk = getNextFileChunk(_file, sectionIdx.start) // Section
+	
+	while inFileSection(chunk) loop
+		chunk = getNextFileChunk(_file, chunk.nextIdx) // Block
+		while inFileBlock(chunk) loop
+			chunk = getNextFileChunk(_file, chunk.nextIdx) // Unit
+			array cellDat[2]
+			
+			while inFileUnit(chunk) loop
+				chunk = getNextFileChunk(_file, chunk.nextIdx) // Field
+				field = chunk.dat
+				
+				array elem[0]
+				while inFileField(chunk) loop
+					chunk = getNextFileChunk(_file, chunk.nextIdx) // Elem
+					elem = push(elem, chunk.dat)
+				repeat
+				
+				cellDat = decodeCellMap(field, elem, cellDat)
+			repeat
+			
+			addCell(cellDat[0], cellDat[1])
+		repeat
+	repeat
+return void
+
+/* This stub function allows you to display a loading message based on the map
+element that is currently loading. */
+// +CORE LOADER
+function loadMapMsg(_mapName, _objName, _objPos)
+	showLoadBox("Loading '" + _mapName + "':" + chr(10) + "Placing '" + _objName + "'" + chr(10) 
+		+ vec3ToStr(_objPos, 2), true, false, false)
+return void
+
 /* Restores a map from file. */
+// +CORE LOADER
 function readObjMap(_file, _mapName)
 	/* Objects are queued before placing them because lights are encoded as
 	separate objects. We need to check subsequent objects to see if they're
@@ -2961,9 +3043,8 @@ function readObjMap(_file, _mapName)
 		_queued[0].obj = buildObjMapMergedLight(_queued[0].obj, _queuedLight[0].lights).obj
 		
 		placeObjFromTemplate(_queued[0].obj, isGrp)
-			
-		showLoadBox("Loading '" + _mapName + "':" + chr(10) + "Placing '" + getMapObjName(_queued[0].obj) + "'" + chr(10) 
-			+ vec3ToStr(_queued[0].obj.pos, 2), true, false, false)
+		
+		loadMapMsg(_mapName, getMapObjName(_queued[0].obj), _queued[0].obj.pos)
 		
 		_queued = remove(_queued, 0)
 		_queuedLight = remove(_queuedLight, 0)
@@ -2974,10 +3055,14 @@ function readObjMap(_file, _mapName)
 		]
 	return result
 	
-	var timer = time() // Debug timer
+	var loadTimer = time() // Debug timer
+	var objTimer = 0
+	var placementTimer = 0
 	
 	clear(g_theme.bgCol)
-	showLoadBox("Loading " + _mapName + ":" + chr(10) + "Reading file ...", true, false, false)
+	
+	readCellMap(_file, _mapName)
+	
 	var redefHappened = false
 	
 	array queuedObj[0]
@@ -3017,6 +3102,7 @@ function readObjMap(_file, _mapName)
 		isMerged = true
 		isRedef = false
 		isDelDef = false
+		var gridBitList
 		
 		while inFileBlock(chunk) loop
 			chunk = getNextFileChunk(_file, chunk.nextIdx) // Unit
@@ -3042,7 +3128,7 @@ function readObjMap(_file, _mapName)
 							nextIdxOffsetFromSection = chunk.nextIdx - sectionIdx.start
 							
 							if !isRedef then
-								redefResult = promptObjDefRelink(genObj.name, 1)
+								redefResult = promptObjDefRelink(genObj.name, 1) // Function not present in core loader
 								
 								/* The redef changed the file length, so refind our index 
 								in the map section. */
@@ -3076,7 +3162,9 @@ function readObjMap(_file, _mapName)
 						
 						if decodeBank(newObj.bankIdx) >= 0 and decodeIdx(newObj.bankIdx) >= 0 then
 							if len(queuedObj) then
+								placementTimer = time()
 								addResult = readObjMap_addQueued(queuedObj, queuedLight, _mapName)
+								objTimer += time() - placementTimer
 								queuedObj = addResult.queuedObj
 								queuedLight = addResult.queuedLight
 							endif
@@ -3097,29 +3185,25 @@ function readObjMap(_file, _mapName)
 		repeat
 		
 		if len(queuedObj) then
+			placementTimer = time()
 			addResult = readObjMap_addQueued(queuedObj, queuedLight, _mapName)
+			objTimer += time() - placementTimer
 			queuedObj = addResult.queuedObj
 			queuedLight = addResult.queuedLight
 		endif
 	repeat
 	
-	readMapProperties(_file, _mapName)
+	var props = readMapProperties(_file, _mapName)
+	setEnvironment(props.bg.idx, props.bg.col)
 	
-	updateCurColContext(true)
-	updateCamColContext(true)
-	g_lightIconLoader.show = []
-	g_lightIconLoader.hide = []
-	removeLoadSpr()
-	initCellOutlines()
-	
-	if redefHappened then
-		g_dirtyMap = true
-	else
-		g_dirtyMap = false
-	endif
-	
-	//debugPrint(0, ["Load time: " + str(time() - timer)])
-return void
+	debugPrint(0, ["Map read time: " + str(time() - loadTimer - objTimer),
+		"Object placement time: " + str(objTimer),
+		"Total load time: " + str(time() - loadTimer)])
+	result = [
+		.redefHappened = redefHappened,
+		.props = props
+	]
+return result
 
 /* Executes a queued map load. */
 function resolveMapLoadAction()
@@ -3128,10 +3212,11 @@ function resolveMapLoadAction()
 	if queuedMap != "" then
 		update()
 		clearMap()
+		initEdForClearedMap()
 		var mapFile = openFile()
 		
 		g_currentMapName = queuedMap
-		readObjMap(mapFile, g_currentMapName)
+		initEdForLoadedMap(readObjMap(mapFile, g_currentMapName))
 		
 		var menuIdx = findMenuEntry(g_menu, "Background")
 		g_menu[menuIdx].submenu = addBackgroundsToMenu(g_bg.idx)
@@ -3140,8 +3225,54 @@ function resolveMapLoadAction()
 	endif
 return void
 
+/* Sets editor elements to reflect a newly loaded map. */
+function initEdForLoadedMap(_mapLoadResult)
+	updateCurColContext(true)
+	updateCamColContext(true)
+	g_lightIconLoader.show = []
+	g_lightIconLoader.hide = []
+	removeLoadSpr()
+	initCellOutlines()
+	
+	if _mapLoadResult.redefHappened then
+		g_dirtyMap = true
+	else
+		g_dirtyMap = false
+	endif
+	
+	g_bg.idx = _mapLoadResult.props.bg.idx
+	g_bg.col = _mapLoadResult.props.bg.col
+	g_cam.pos = _mapLoadResult.props.cam.pos
+	g_cam.fwd = _mapLoadResult.props.cam.fwd
+	g_cam.up = _mapLoadResult.props.cam.up
+	g_cur.pos = _mapLoadResult.props.cur.pos
+	
+	g_cam.dir = g_cam.pos + g_cam.fwd
+	g_cam.cell = getCellIdxFromPos(g_cam.pos)
+	g_cam.cellPos = getCellPosFromPos(g_cam.pos)
+	g_cur.cell = getCellIdxFromPos(g_cur.pos)
+	g_cur.cellPos = getCellPosFromPos(g_cur.pos)
+	updateCurWidgets()
+	updateViewport()
+	pruneLightIcons()
+return void
+
 /* Map properties are saved separately from map objects. */
+// +CORE LOADER
 function readMapProperties(_file, _mapName)
+	var propStruct = [
+		.bg = [
+			.col = g_bg.col,
+			.idx = g_bg.idx
+		],
+		.cam = [
+			.pos = g_cam.pos,
+			.fwd = g_cam.fwd,
+			.up = g_cam.up
+		],
+		.cur = [ .pos = g_cur.pos ]
+	]
+	
 	var sectionIdx = findFileSection(_file, "mapProperties" + _mapName)
 	if sectionIdx.start >= 0 then
 		var chunk = getNextFileChunk(_file, sectionIdx.start) // Section
@@ -3157,29 +3288,16 @@ function readMapProperties(_file, _mapName)
 					
 					array elem[0]
 					while inFileField(chunk) loop
-						showLoadBox("Loading " + _mapName + ":" + chr(10) + "Restoring map properties", true, false, false)
-						
 						chunk = getNextFileChunk(_file, chunk.nextIdx) // Elem
 						elem = push(elem, chunk.dat)
 					repeat
 					
-					decodeMapProperties(field, elem)
+					propStruct = decodeMapProperties(field, elem, propStruct)
 				repeat
 			repeat
 		repeat
-		
-		setEnvironment(g_bg.idx, g_bg.col)
-		g_cam.dir = g_cam.pos + g_cam.fwd
-		g_cam.cell = getCellIdxFromPos(g_cam.pos)
-		g_cam.cellPos = getCellPosFromPos(g_cam.pos)
-		g_cur.cell = getCellIdxFromPos(g_cur.pos)
-		g_cur.cellPos = getCellPosFromPos(g_cur.pos)
-		updateCurWidgets()
-		updateViewport()
 	endif
-	
-	removeLoadSpr()
-return void
+return propStruct
 
 /* Editor preferences apply regardless of what map is loaded. */
 function readEdPrefs(_file)
@@ -3214,6 +3332,9 @@ function readEdPrefs(_file)
 				if field == "g_cam.drawObjLabels" then
 					g_cam.drawObjLabels = decodeElem(elem)
 					break endif
+				if field == "g_cam.worldMovement" then
+					g_cam.worldMovement = decodeElem(elem)
+					break endif
 				if field == "g_theme.name" then
 					setTheme(decodeElem(elem), true)
 					break endif
@@ -3235,8 +3356,8 @@ function readEdPrefs(_file)
 				if field == "g_cur.scaleSnapAmount" then
 					g_cur.scaleSnapAmount = decodeElem(elem)
 					break endif
-				if field == "g_cam.worldMovement" then
-					g_cam.worldMovement = decodeElem(elem)
+				if field == "g_visibleCellOutlines" then
+					g_visibleCellOutlines = decodeElem(elem)
 					break
 				endif break repeat
 			repeat
@@ -3245,6 +3366,7 @@ function readEdPrefs(_file)
 return void
 
 /* Returns the end-of-file index or the index of the first unallocated space. */
+// +CORE LOADER
 function getEofIdx(_file)
 	var eof = findFileChar(_file, chr(127))
 	if eof < 0 then
@@ -3254,6 +3376,7 @@ return eof
 
 /* A section is the highest-level file division, distinguishing between, for
 example, map objects and map properties. */
+// +CORE LOADER
 function findFileSection(_file, _section)
 return findFileSection(_file, _section, 0, -1)
 
@@ -3262,6 +3385,7 @@ return findFileChunk(_file, chr(31) + _section, [ chr(31) ], _startAt, _endAt)
 
 /* A chunk is a file section that exists between any two delimiters, which are
 typically non-printing unicode characters. _endAt is non-inclusive. */
+// +CORE LOADER
 function findFileChunk(_file, _searchStartStr, _searchEndStr, _startAt, _endAt)
 	seek(_file, _startAt)
 	fileStr = read(_file, len(_file) - _startAt)
@@ -3306,6 +3430,7 @@ return result
 /* Object definitions are saved to file under their names. Their bank and index
 numbers are dynamically generated on program load and are not saved, so they must
 be found in the file by name. */
+// +CORE LOADER
 function findFileObjDef(_file, _defName)
 	var sectionIdx = findFileSection(_file, "objectDefs")
 return findFileObjDef(_file, _defName, _sectionIdx.start, sectionIdx.end)
@@ -3317,6 +3442,7 @@ return findFileChunk(_file,
 
 /* Gets the index of a character within the file. Bails out if unallocated
 space is encountered. */
+// +CORE LOADER
 function findFileChar(_file, _char)
 return findFileChar(_file, _char, 0)
 
@@ -3379,6 +3505,7 @@ return names
 
 /* Return the next file chunk as delimited by certain non-printing unicode characters 
 that signify data purpose. */
+// +CORE LOADER
 function getNextFileChunk(_file, _startIdx)
 	seek(_file, _startIdx)
 	
@@ -3418,6 +3545,7 @@ function getNextFileChunk(_file, _startIdx)
 return result
 
 /* Like getNextFileChunk(), but in the other direction. */
+// +CORE LOADER
 function getPrevFileChunk(_file, _startIdx)
 	seek(_file, _startIdx)
 	
@@ -3457,6 +3585,7 @@ return result
 
 /* The light definition bank cannot be modified by the user. These light
 objects are fully defined in code and do not load from file. */
+// +CORE LOADER
 function loadLightDefs()
 	array defs[3]
 	objDef newDef
@@ -3496,9 +3625,8 @@ function loadLightDefs()
 return defs
 
 /* Loads unmerged object definitions from the banks created in getModels(). */
+// +CORE LOADER
 function loadObjDefs(_file)
-	showLoadBox("Loading object definitions ...", true, false, false)
-	
 	var models = getModels()
 	array obj[len(models)]
 	array bankName[len(models)]
@@ -3521,15 +3649,24 @@ function loadObjDefs(_file)
 			modelCount += 1
 			
 			if modelCount >= 125 then
-				showScrollText(
-"ERROR: FUZE has an internal limit of 124 3D models loaded, but you have more than 124 object definitions.
+				clear(black)
+				ink(white)
+				textSize(gheight() / 25)
+				printAt(1, 1, 
+"ERROR: FUZE has an internal limit of 124 3D models loaded, but you have more than 
+124 object definitions.
 
-Please exit Celqi, ensure that the getModels() function contains no more than 124 object definitions, and restart Celqi.
+Please exit Celqi, ensure that the getModels() function contains no more than 124 
+object definitions, and restart Celqi.
 
-If you have not already done so and are not using the definitions in your own maps, you may free up space by deleting the 'Castle Demo' bank from getModels(). You may also want to remove the 'Castle Demo' map using 'File > Manage maps ...' from within Celqi.
+If you have not already done so and are not using the definitions in your own maps, 
+you may free up space by deleting the 'Castle Demo' bank from getModels(). You may 
+also want to remove the 'Castle Demo' map using 'File > Manage maps ...' from within 
+Celqi.
 
 Press (+)/F5 to close Celqi."
 				)
+				update()
 				
 				// Force user to exit
 				loop
@@ -3542,7 +3679,6 @@ Press (+)/F5 to close Celqi."
 	repeat
 	
 	obj[g_lightBank] = loadLightDefs()
-	removeLoadSpr()
 	
 	var result = [
 		.obj = obj,
@@ -3550,17 +3686,26 @@ Press (+)/F5 to close Celqi."
 	]
 return result
 
+/* This stub function allows you to display a loading message based on the 
+object defintion that is currently loading. */
+// +CORE LOADER
+function loadDefMsg(_defName)
+	showLoadBox("Loading object '" + _defName + "'", true, false, false)
+return void
+
 /* Loads an individual unmerged object definition, which includes calculating 
 the extent. */
+// +CORE LOADER
 function loadObjDef(_file, _modelDat)
 	objDef def
+	
 	if len(_modelDat[0]) then
 		def.name = _modelDat[0]
 	else
 		def.name = getDefaultDefName(_modelDat[1])
 	endif
 	
-	showLoadBox("Loading object '" + def.name + "'", true, false, false)
+	loadDefMsg(def.name)
 		
 	def.file = _modelDat[1]
 	def.obj = loadModel(_modelDat[1])
@@ -3571,9 +3716,8 @@ return def
 
 /* Loads the merged object definitions, which are defined from within the program
 rather than in getModels(). */
+// +CORE LOADER
 function loadMergedObjDefs(_file)
-	showLoadBox("Reading merged object definitions ...", true, false, false)
-	
 	array mergedDefs[0]
 	var sectionIdx = findFileSection(_file, "objectDefs")	
 	var chunk = getNextFileChunk(_file, sectionIdx.start) // Section
@@ -3654,10 +3798,11 @@ function loadMergedObjDefs(_file)
 		repeat
 	repeat
 	
-	removeLoadSpr()
+	//removeLoadSpr()
 return missingRefs
 
 /* Loads a merged object's top-level container data. */
+// +CORE LOADER
 function assembleMergedObjDefParent(_file, _chunk, _def)
 	var isMerged = true
 	var bankStr = ""
@@ -3681,8 +3826,6 @@ function assembleMergedObjDefParent(_file, _chunk, _def)
 			_def.name = nameElem
 		else if field == ".bankName" then
 			bankStr = decodeElem(elem)
-		else
-			_def = decodeObjDef(field, elem, _def)
 		endif endif
 	repeat
 	
@@ -3695,6 +3838,7 @@ return result
 
 /* Loads a merged object's child data; that is, the actual object data that
 fills the top-level container. */
+// +CORE LOADER
 function assembleMergedObjDefChild(_file, _chunk, _def, _curChildIdx)
 	_chunk = getNextFileChunk(_file, _chunk.nextIdx) // Unit
 	var genResult = getGenObjFromFile(_file, _chunk)
@@ -3730,9 +3874,9 @@ return result
 
 /* Puts the merged object into the g_obj array so it can be used. If the
 requested bank doesn't exist, it is created. */
+// +CORE LOADER
 function loadAssembledMergedObjDef(_def, _savedBankName)
-	showLoadBox("Loading merged object '" + _def.name + "'" + chr(10) + 
-		"in bank '" + _savedBankName + "'", true, false, false)
+	loadDefMsg(_def.name)
 	
 	var bankFound = false
 	var defBank
@@ -3761,7 +3905,6 @@ function loadAssembledMergedObjDef(_def, _savedBankName)
 	endif
 	
 	result = [ .bank = defBank, .idx = defIdx ]
-	removeLoadSpr()
 return result
 
 	// ----------------------------------------------------------------
@@ -3815,18 +3958,36 @@ function encodeElem(_dat)
 	var type = getType(_dat)
 	var enc
 	
-	if type == "vector" then
+	loop if type == "vector" then
 		enc = [
 			"3",
 			strRemoveTrailingZeroes(str(_dat[0])),
 			strRemoveTrailingZeroes(str(_dat[1])),
 			strRemoveTrailingZeroes(str(_dat[2]))
 		]
-	else if type == "float" then
+		break endif
+	if type == "float" then
 		enc = [
 			"f",
 			strRemoveTrailingZeroes(str(_dat))
 		]
+		break endif
+	if type == "array" then
+		enc = [ "i3" ]
+		
+		var i
+		for i = 0 to len(_dat) loop
+			enc = push(enc, str(_dat[i]))
+		repeat
+		/*
+		enc = [
+			"i3",
+			str(_dat[0]),
+			str(_dat[1]),
+			str(_dat[2])
+		]
+		*/
+		break
 	else
 		var typeCode
 		if type == "float" then
@@ -3841,8 +4002,34 @@ function encodeElem(_dat)
 			typeCode,
 			str(_dat)
 		]
-	endif endif
+		break
+	endif break repeat
 return enc
+
+function encodeCellMap(_file,_mapName, _ver)
+	var sectionIdx = findFileSection(_file, "cellMap" + _mapName)
+	if sectionIdx.start < 0 then
+		sectionIdx.start = getEofIdx(_file)
+		sectionIdx.end = sectionIdx.start
+	endif
+	
+	var writeStr = sectionStr("cellMap" + _mapName + _ver)
+	writeStr += blockStr("")
+	var i
+	for i = 0 to len(g_cell) loop
+		writeStr += unitStr(i)
+		writeStr += fieldStr(".pos")
+		writeStr += elemStr(g_cell[i][0])
+		writeStr += fieldStr(".adj")
+		writeStr += elemStr(g_cell[i][1])
+	repeat
+	
+	var result = [
+		.enc = writeStr,
+		.writeStart = sectionIdx.start,
+		.writeEnd = sectionIdx.end
+	]
+return result
 
 /* Returns a string encoded for writing map data to file. */
 function encodeObjMap(_file, _mapName, _ver)
@@ -4030,6 +4217,7 @@ return result
 	// FILE DECODING
 
 /* Reconstructs a variable's value from encoded file string. */
+// +CORE LOADER
 function decodeElem(_e)
 	var dec
 	loop if _e[0] == "f" then
@@ -4045,6 +4233,15 @@ function decodeElem(_e)
 		for i = 0 to 3 loop
 			dec[i] = float(_e[i + 1])
 		repeat
+		break endif
+	if _e[0] == "i3" then
+		array newDec[len(_e) - 1]
+		dec = newDec
+		
+		var i
+		for i = 0 to len(dec) loop
+			dec[i] = int(_e[i + 1])
+		repeat
 		break
 	else
 		dec = _e[1]
@@ -4055,6 +4252,7 @@ return dec
 /* Reconstructs an object from encoded file string. This object may have the
 properties of both a mapObj and a lightObj; the calling function needs to
 determine how to parse the data. */
+// +CORE LOADER
 function getGenObjFromFile(_file, _chunk)
 	var genObj = initGenericObj()
 	var field
@@ -4079,6 +4277,7 @@ function getGenObjFromFile(_file, _chunk)
 return result
 
 /* Formats and initializes a struct to be filled by getGenObjFromFile(). */
+// +CORE LOADER
 function initGenericObj()
 return [
 	.obj = -1,
@@ -4098,6 +4297,7 @@ return [
 ]
 
 /* Fills the generic object with data from getGenObjFromFile(). */
+// +CORE LOADER
 function fillGenericObj(_genObj, _field, _elem)
 	loop if _field == ".name" then
 		_genObj.name = _elem
@@ -4137,11 +4337,12 @@ function fillGenericObj(_genObj, _field, _elem)
 		break endif
 	if _field == ".range" then
 		_genObj.range = _elem
-		break 
+		break
 	endif break repeat
 return _genObj
 
 /* Pulls all the data from a generic object necessary for an active. */
+// +CORE LOADER
 function createActiveFromGenericObj(_gen)
 	active obj
 	obj.obj = _gen.obj
@@ -4153,6 +4354,7 @@ function createActiveFromGenericObj(_gen)
 return obj
 
 /* Pulls all the data from a generic object necessary for a lightObj. */
+// +CORE LOADER
 function createLightObjFromGenericObj(_gen)
 	lightObj l
 	l = initLightObj()
@@ -4165,35 +4367,40 @@ function createLightObjFromGenericObj(_gen)
 return l
 
 /* Fills the appropriate variables from the file's saved map properties. */
-function decodeMapProperties(_field, _elem)
+// +CORE LOADER
+function decodeMapProperties(_field, _elem, _propStruct)
 	loop if _field == "g_bg.idx" then
-		g_bg.idx = decodeElem(_elem)
+		_propStruct.bg.idx = decodeElem(_elem)
 		break endif
 	if _field == "g_bg.col" then
-		g_bg.col = decodeElem(_elem)
+		_propStruct.bg.col = decodeElem(_elem)
 		break endif
 	if _field == "g_cam.pos" then
-		g_cam.pos = decodeElem(_elem)
+		_propStruct.cam.pos = decodeElem(_elem)
 		break endif
 	if _field == "g_cam.fwd" then
-		g_cam.fwd = decodeElem(_elem)
+		_propStruct.cam.fwd = decodeElem(_elem)
 		break endif
 	if _field == "g_cam.up" then
-		g_cam.up = decodeElem(_elem)
+		_propStruct.cam.up = decodeElem(_elem)
 		break endif
 	if _field == "g_cur.pos" then
-		g_cur.pos = decodeElem(_elem)
+		_propStruct.cur.pos = decodeElem(_elem)
 		break
 	endif break repeat
-return void
+return _propStruct
 
-/* Creates an unmerged object definition from the file. */
-function decodeObjDef(_field, _elem, _def)
-	if _field == ".name" then
-		_def.name = decodeElem(_elem)
+/* Fills the appropriate variables from the file's saved cell properties. */
+// CORE LOADER
+function decodeCellMap(_field, _elem, _cellArr)
+	loop if _field == ".pos" then
+		_cellArr[0] = decodeElem(_elem)
+		break endif
+	if _field == ".adj" then
+		_cellArr[1] = decodeElem(_elem)
 		break
-	endif
-return _def
+	endif break repeat
+return _cellArr
 
 /* Returns the version of Celqi that saved a given file section. */
 function getSectionVersion(_file, _sectStart, _sectEnd)
@@ -4203,17 +4410,20 @@ function getSectionVersion(_file, _sectStart, _sectEnd)
 return ver
 
 /* Returns true if the given chunk is within the file. */
+// +CORE LOADER
 function inFile(_chunk)
 return _chunk.nextMarker != chr(127) 
 		and _chunk.nextIdx < _chunk.fileLen
 
 /* Returns true if the given chunk is still within the same section. */
+// +CORE LOADER
 function inFileSection(_chunk)
 return _chunk.nextMarker != chr(31) 
 		and _chunk.nextMarker != chr(127) 
 		and _chunk.nextIdx < _chunk.fileLen
 
 /* Returns true if the given chunk is still within the same block. */			
+// +CORE LOADER
 function inFileBlock(_chunk)
 return _chunk.nextMarker != chr(31) 
 		and _chunk.nextMarker != chr(17) 
@@ -4221,6 +4431,7 @@ return _chunk.nextMarker != chr(31)
 		and _chunk.nextIdx < _chunk.fileLen
 
 /* Returns true if the given chunk is still within the same unit. */
+// +CORE LOADER
 function inFileUnit(_chunk)
 return _chunk.nextMarker != chr(31) 
 		and _chunk.nextMarker != chr(17) 				
@@ -4229,6 +4440,7 @@ return _chunk.nextMarker != chr(31)
 		and _chunk.nextIdx < _chunk.fileLen
 
 /* Returns true if the given chunk is still within the same field. */
+// +CORE LOADER
 function inFileField(_chunk)
 return _chunk.nextMarker != chr(31) 
 		and _chunk.nextMarker != chr(17) 				
@@ -4685,6 +4897,7 @@ function strRemoveTrailingZeroes(_str)
 return _str[:newLen]
 
 /* Generate a name based on a filepath. */
+// +CORE LOADER
 function getDefaultDefName(_path)
 	var name = _path
 	var slashIdx = strFind(name, "/") + 1
@@ -4696,6 +4909,7 @@ return name
 // NUMBER FUNCTIONS
 
 /* 1 for 0 or positive, -1 for negative. */
+// +CORE LOADER
 function getSign(_num)
 	if _num >= 0 then
 		_num = 1
@@ -4705,6 +4919,7 @@ function getSign(_num)
 return _num
 
 /* Round a float to a given number of decimal places. */
+// +CORE LOADER
 function roundDec(_num, _decimals)
 	var factor
 	
@@ -4751,6 +4966,7 @@ function roundDec(_num, _decimals)
 return float(_num)
 
 /* Wrap range is _min up to but not including _max. */
+// +CORE LOADER
 function wrap(_num, _min, _max)
 	if _num < _min then
 		_num = _max + mod((_num - _min), (_max - _min))
@@ -4762,6 +4978,7 @@ return _num
 
 /* The native mod function (%) truncates the result if it's a float, 
 so use this for floats. */
+// +CORE LOADER
 function mod(_num1, _num2)
 	_num1 = roundDec(_num1, 6)
 	_num2 = roundDec(_num2, 6)
@@ -4769,6 +4986,7 @@ function mod(_num1, _num2)
 return decPart * _num2
 
 /* Equality check with tolerance value. */
+// +CORE LOADER
 function equals(_num1, _num2, _tolerance)
 	var isEqual = true
 	
@@ -4787,6 +5005,7 @@ return isEqual
 
 /* Rounds a number (_num) to the closest multiple of another number (_mult), 
 with the multiplication sequence offset by the given amount (_offset). */
+// +CORE LOADER
 function roundToMultiple(_num, _mult, _offset)
 	_mult = abs(_mult)
 	var div = floor(_num / _mult)
@@ -4798,10 +5017,12 @@ function roundVec3ToMultiple(_v, _mult, _offset)
 	_v[2] = roundToMultiple(_v[2], _mult, _offset)
 return _v
 
+// +CORE LOADER
 function absVec3(_vec)
 return {abs(_vec.x), abs(_vec.y), abs(_vec.z)}
 
 /* Returns number of ints needed to store the given number of bits. */
+// +CORE LOADER
 function bitLenToInt(_bitLen)
 return ceil(_bitLen / g_intLen)
 
@@ -4820,6 +5041,7 @@ return bitGet(_bitIntArr[intIdx], _shortBitIdx)
 
 /* _val must be 0 or 1. This will fill a length of _count bits starting
 at _bitIdx with the _val bit. */
+// +CORE LOADER
 function bitFieldSetLong(_bitIntArr, _bitIdx, _count, _val)
 	if _val != 0 then
 		_val = int_max
@@ -4841,6 +5063,7 @@ return _bitIntArr
 
 /* Bitwise or for multi-int binary numbers. Assumes both bitInt arrays have the
 same number of elements. */
+// +CORE LOADER
 function bitOrLong(_bitIntArr1, _bitIntArr2)
 	var i
 	for i = 0 to len(_bitIntArr1) loop
@@ -4859,6 +5082,7 @@ return _bitIntArr1
 
 /* Compact if statement that returns argument 2 or 3 depending on the truth of
 argument 1. */
+// +CORE LOADER
 function ifElse(_cond, _if, _else)
 	var result
 	
@@ -4872,6 +5096,7 @@ return result
 // ----------------------------------------------------------------
 // ARRAY FUNCTIONS
 
+// +CORE LOADER
 function contains(_arr, _item)
 return contains(_arr, _item, false)
 
@@ -4889,6 +5114,7 @@ return found
 
 /* When considering possible matches in _arr, tries to match _item with
 _arr[i][_subIdx] instad of _arr[i]. */
+// +CORE LOADER
 function containsAtSubIdx(_arr, _item, _subIdx)
 return containsAtSubIdx(_arr, _item, _subIdx, false)
 
@@ -4912,6 +5138,7 @@ function containsMapObj(_arr, _obj)
 	endif
 return found
 
+// +CORE LOADER
 function find(_arr, _item)
 return find(_arr, _item, false)
 
@@ -4933,6 +5160,7 @@ return idx
 
 /* When considering possible matches in _arr, tries to match _item with
 _arr[i][_subIdx] instad of _arr[i]. */
+// +CORE LOADER
 function findAtSubIdx(_arr, _item, _subIdx)
 return findAtSubIdx(_arr, _item, _subIdx, false)
 
@@ -4965,6 +5193,7 @@ function findMapObj(_arr, _obj)
 	repeat
 return idx
 
+// +CORE LOADER
 function remove(_arr, _idx)
 	array newArr[len(_arr) - 1]
 	var offset = 0
@@ -5053,6 +5282,7 @@ function findRemoveAtSubIdx(_arr, _item, _subIdx, _castToStr)
 	endif
 return _arr
 
+// +CORE LOADER
 function insert(_arr, _elem, _idx)
 	array newArr[len(_arr) + 1]
 	_idx = clamp(_idx, 0, len(_arr))
@@ -5070,6 +5300,7 @@ function insert(_arr, _elem, _idx)
 return newArr
 
 /* Explodes _elemArr into its constituent elements and inserts them into _arr. */
+// +CORE LOADER
 function insertArray(_arr, _elemArr)
 return insertArray(_arr, _elemArr, len(_arr))
 
@@ -5108,6 +5339,7 @@ function arrayEquals(_arr1, _arr2)
 return eqs
 
 /* Inserts _item at the end of _arr. */
+// +CORE LOADER
 function push(_arr, _item)
 	var arrBuffer = _arr
 	var newArr[len(arrBuffer) + 1]
@@ -5125,6 +5357,7 @@ return _arr
 for example, will be read as an int -- but it sees the general patterns 
 that distinguish data types and should be robust enough for most cases. 
 FUZE will throw an error if you pass it a handle. */
+// +CORE LOADER
 function getType(_var)
 	var type = "string"
 	str varStr = str(_var)
@@ -5192,6 +5425,7 @@ return _var
 
 // ----------------------------------------------------------------
 // VECTOR FUNCTIONS
+// +CORE LOADER
 
 /* Makes a 3D unit vector 2D by removing the Y element. */
 function flattenY(_v)
@@ -5693,57 +5927,61 @@ function showLoadBox(_text, _clear)
 return showLoadBox(_text, _clear, false, false)
 
 function showLoadBox(_text, _clear, _drawStatusBar, _drawMenu)
-	if _clear then
-		clear(g_theme.bgCol)
-		drawScreenBorder()
-	else
-		drawObjects()
-	endif
-	
-	if _drawStatusBar then drawStatusBar() endif
-	
-	if _drawMenu then
-		if imageSize(g_menuImg) != {1, 1} then
-			drawImage(g_menuImg, 0, 0)
+	// Never refresh more than once a frame to avoid unneeded update() calls
+	if time() - g_lastLoadUpdateTime >= 0.01667 then
+		if _clear then
+			clear(g_theme.bgCol)
+			drawScreenBorder()
+		else
+			drawObjects()
 		endif
+		
+		if _drawStatusBar then drawStatusBar() endif
+		
+		if _drawMenu then
+			if imageSize(g_menuImg) != {1, 1} then
+				drawImage(g_menuImg, 0, 0)
+			endif
+		endif
+		
+		var props = getNoticeBoxProperties(_text, g_dialogTextSize)
+		initLogoSpr()
+		var imgSize = getSpriteImageSize(g_logo.spr)
+		var imgScale = (gheight() / imgSize.y) / 8
+		imgScale = {imgScale, imgScale}
+		props.boxSize = {props.boxSize.x + props.edgeSize + imgSize.x * imgScale.x, 
+			props.edgeSize * 2 + imgSize.y * imgScale.y}
+		props.boxPos = {gwidth() / 2 - props.boxSize.x / 2, gheight() / 2 - props.boxSize.y / 2}
+		
+		var loadBox = drawUiBox(
+			props.boxPos, 
+			props.boxSize, 
+			true, 
+			1
+		)
+		
+		drawTextEx(
+			_text,
+			props.boxPos + {props.edgeSize * 2 + imgSize.x * imgScale.x, 
+				props.boxSize.y / 2},
+			props.textH,
+			align_center_left,
+			props.textW,
+			0,
+			{1, 1},
+			g_theme.textCol,
+			{0, 0}
+		)
+		
+		animLoad((props.boxPos + {props.edgeSize, props.edgeSize}) + (imgSize * imgScale) / 2, 
+			imgScale, 1, g_theme.bgCol)
+		if !_clear then
+			drawSprites()
+		endif
+		
+		update()
+		g_lastLoadUpdateTime = time()
 	endif
-	
-	var props = getNoticeBoxProperties(_text, g_dialogTextSize)
-	initLogoSpr()
-	var imgSize = getSpriteImageSize(g_logo.spr)
-	var imgScale = (gheight() / imgSize.y) / 8
-	imgScale = {imgScale, imgScale}
-	props.boxSize = {props.boxSize.x + props.edgeSize + imgSize.x * imgScale.x, 
-		props.edgeSize * 2 + imgSize.y * imgScale.y}
-	props.boxPos = {gwidth() / 2 - props.boxSize.x / 2, gheight() / 2 - props.boxSize.y / 2}
-	
-	var loadBox = drawUiBox(
-		props.boxPos, 
-		props.boxSize, 
-		true, 
-		1
-	)
-	
-	drawTextEx(
-		_text,
-		props.boxPos + {props.edgeSize * 2 + imgSize.x * imgScale.x, 
-			props.boxSize.y / 2},
-		props.textH,
-		align_center_left,
-		props.textW,
-		0,
-		{1, 1},
-		g_theme.textCol,
-		{0, 0}
-	)
-	
-	animLoad((props.boxPos + {props.edgeSize, props.edgeSize}) + (imgSize * imgScale) / 2, 
-		imgScale, 1, g_theme.bgCol)
-	if !_clear then
-		drawSprites()
-	endif
-	
-	update()
 return void
 
 /* Deletes the loading sprite. Needs to be called when a load finishes. */
@@ -6192,7 +6430,6 @@ function animLoad(_pos, _scale, _updateMode, _col)
 	
 	if _updateMode then
 		drawSprite(g_logo.spr)
-		update()
 	endif
 return void
 
@@ -6419,6 +6656,7 @@ return name
 
 /* Builds extent data for an object. Reflects actual object hitbox within 
 a margin of error. */
+// +CORE LOADER
 function getObjExtent(_obj, _pos)
 	extent ext
 	
@@ -6438,6 +6676,7 @@ return ext
 /* When finding an object's extent, we first need to know where the object is
 in relation to its origin. This function creates a cube at the origin and
 expands it until it collides with the object. */
+// +CORE LOADER
 function findObjExtStartSize(_obj, _pos)
 	var colBoxScale = {0, 0, 0}
 	var colBox = placeObject(cube, _pos, colBoxScale)
@@ -6450,10 +6689,6 @@ function findObjExtStartSize(_obj, _pos)
 		hit = objectIntersect(colBox, _obj)
 	repeat
 	
-	if !hit then
-		debugPrint(0, ["ERROR: Object extent data could not be calculated."])
-	endif
-	
 	result = [
 		.colBox = colBox,
 		.scale = colBoxScale,
@@ -6464,6 +6699,7 @@ return result
 /* Moves the collision box found by findObjExtStartSize() in a given direction
 until it no longer intersects _obj, which tells us _obj's extent in that
 direction. */
+// +CORE LOADER
 function findObjExtDir(_obj, _pos, _colBox, _colBoxScale, _dir)
 	// Assume true to begin because findObjExtStartSize() succeeded
 	var hit = true
@@ -6483,6 +6719,7 @@ function findObjExtDir(_obj, _pos, _colBox, _colBoxScale, _dir)
 return dirExt
 
 /* Finds an object's extents in all cardinal directions. */
+// +CORE LOADER
 function findAllObjExtDirs(_obj, _pos, _colBox, _colBoxScale)
 	extent ext
 	
@@ -6495,6 +6732,7 @@ function findAllObjExtDirs(_obj, _pos, _colBox, _colBoxScale)
 return ext
 
 /* Gets the center position within an extent. */
+// +CORE LOADER
 function getExtCenter(_ext)
 	var ctr = {(_ext.hi.x + _ext.lo.x) / 2,
 		(_ext.hi.y + _ext.lo.y) / 2,
@@ -6502,6 +6740,7 @@ function getExtCenter(_ext)
 return ctr
 
 /* Gets the longest dimension of an extent. */
+// +CORE LOADER
 function getMaxDim(_ext)
 	var h = _ext.hi.y - _ext.lo.y
 	var w = _ext.hi.z - _ext.lo.z
@@ -6516,6 +6755,7 @@ function getMaxDim(_ext)
 return maxDim
 
 /* Gets the corners of a scaled and rotated extent. */
+// +CORE LOADER
 function getExtPoints(_ext, _scale, _fwd, _up)
 	var r = normalize(cross(_fwd, _up))
 	var dim = {(_ext.hi.x - _ext.lo.x) * _scale.x,
@@ -6536,6 +6776,7 @@ return points
 
 /* Gets an extent's minimum and maximum on a single axis. Used for intersection
 calculations. */
+// +CORE LOADER
 function getExtMinMaxOnAxis(_ext, _scale, _fwd, _up, _axis)
 	var points = getExtPoints(_ext, _scale, _fwd, _up)
 	var minMax = [
@@ -6562,6 +6803,7 @@ function getExtMinMaxOnAxis(_ext, _scale, _fwd, _up, _axis)
 return minMax
 
 /* Gets the min and max values for each axis for a scaled, rotated extent. */
+// +CORE LOADER
 function getExtMinMax(_ext, _scale, _fwd, _up)
 	var minMax = [
 		.lo = {
@@ -6594,6 +6836,7 @@ function getExtMinMax(_ext, _scale, _fwd, _up)
 return minMax
 
 /* Checks if two scaled, roated, positioned extents intersect. */
+// +CORE LOADER
 function getExtIntersect(_ext1, _pos1, _scale1, _fwd1, _up1, 
 		_ext2, _pos2, _scale2, _fwd2, _up2)
 	var axis = [
@@ -6629,6 +6872,7 @@ function getExtIntersect(_ext1, _pos1, _scale1, _fwd1, _up1,
 return collision
 
 /* Builds an extent that includes multiple objects. */
+// +CORE LOADER
 function getGroupExt(_children)
 	var grpExt = [
 		.lo = {
@@ -6650,6 +6894,7 @@ function getGroupExt(_children)
 return grpExt
 
 /* Recalculates extent to include an additional object. */
+// +CORE LOADER
 function addObjectToGrpExt(_grpExt, _obj)
 	var inSitu = getExtMinMax(getObjDef(_obj).ext, 
 		_obj.scale, _obj.fwd, _obj.up)
@@ -6671,6 +6916,7 @@ return _grpExt
 from the underlying unmerged objects instead of pulling cached extent data from
 underlying merged objects. Used in cases where we aren't sure which merged object 
 definitions have accurate extent data. */
+// +CORE LOADER
 function rebuildMergedObjExt(_obj)
 	var grpExt = [
 		.lo = {
@@ -6788,6 +7034,7 @@ return unmergeObj(g_obj[_bank][_idx])
 
 /* Bank and index aren't saved into an object definition. Finds the bank and index
 of the definition matching _name. */
+// +CORE LOADER
 function getObjDefBankIdx(_name)
 	var result = [
 		.bank = -1,
@@ -6811,6 +7058,7 @@ return result
 
 /* Checks whether a given object type exists within an object definition's 
 child structure. */
+// +CORE LOADER
 function isObjInObjDef(_name, _def)
 	var hit = false
 	if _def.name == _name then
@@ -7133,7 +7381,7 @@ function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _
 							and decodeIdx(g_cell[i][j].bankIdx) == _delInfo[l].idx then
 						objBuf = updateObjBankIdx(g_cell[i][j], _delInfo).obj
 						
-						deleteMapObj(i, j)
+						edDeleteMapObj(i, j)
 						
 						if _delAction == 1 then // Unmerge
 							for k = 0 to len(objBuf.children) loop
@@ -7161,7 +7409,7 @@ function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _
 						// If this object was changed by the def deletion, replace it
 						if decodeBank(g_cell[i][j].bankIdx) == _changedDefs[k].bank 
 								and decodeIdx(g_cell[i][j].bankIdx) == _changedDefs[k].idx then
-							deleteMapObj(i, j)
+							edDeleteMapObj(i, j)
 							
 							changedObj = activeFromObjDef(decodeBank(objBuf.bankIdx), decodeIdx(objBuf.bankIdx), false)
 							changedObj.pos = objBuf.pos
@@ -7429,7 +7677,7 @@ function replaceObjDefRecursive(_checkObj, _oldInfo, _newObjs, _returnObjs)
 		endif
 	repeat
 	
-	if !isChanged then
+	if !isChanged and !len(_checkObj.bankIdx) then // Don't operate on objects whose .bankIdx contains a name, because they've been deleted
 		/* If a def name is passed wihout a bank, we assume the bank/idx numbers 
 		don't need to be adjusted. (This happens during initial program load, where 
 		missing objects are simply never assigned bank/idx numbers but must still 
@@ -7479,6 +7727,7 @@ return result
 
 /* Finds the definiton for an instantiated object or returns a default definition 
 if none exists. */
+// +CORE LOADER
 function getObjDef(_obj)
 	var def
 	var defIsValid = false
@@ -7531,7 +7780,10 @@ function placeActive(_c)
 			
 			placeObjFromTemplate(template, g_cur.isMerged)
 			
-			updateCurColContext(true)
+			pruneLightIcons()
+			//updateCurColContext(true)
+			updateCurContexts(true)
+			g_dirtyMap = true
 		else if !_c.a then
 			g_cDat[g_cIdx.a].held = false
 		endif endif
@@ -7539,6 +7791,7 @@ function placeActive(_c)
 return void
 
 /* Places an object into the map using an object _t as the template. */
+// +CORE LOADER
 function placeObjFromTemplate(_t, _merged)
 	array placedObj[0]
 	
@@ -7588,34 +7841,39 @@ function placeObjFromTemplate(_t, _merged)
 return placedObj
 
 /* Creates a light using light _t as a template. */
+// +CORE LOADER
 function placeLightFromTemplate(_t)
 	_t.light = placeLightByType(_t.name, _t.col, _t.pos, _t.brightness, _t.res, _t.fwd, _t.spread, _t.range)
-	_t.spr = createSprite()
-	
-	loop if _t.name == "point" then
-		setSpriteImage(_t.spr, g_imgPointLight)
-		break endif
-	if _t.name == "pointshadow" then
-		setSpriteImage(_t.spr, g_imgPointShadowLight)
-		break endif
-	if _t.name == "spot" then
-		setSpriteImage(_t.spr, g_imgSpotLight)
-		break endif
-	if _t.name == "world" then
-		setSpriteImage(_t.spr, g_imgWorldLight)
-		break
-	else
-		setSpriteImage(_t.spr, g_imgWorldShadowLight)
-		break
-	endif break repeat
 	
 	if _t.col.a != g_sprAlpha then _t.col.a = g_sprAlpha endif
 	
-	setSpriteColor(_t.spr, _t.col)
-	setSpriteScale(_t.spr, _t.sprScale)
+	if g_editor then
+		_t.spr = createSprite()
+		
+		loop if _t.name == "point" then
+			setSpriteImage(_t.spr, g_imgPointLight)
+			break endif
+		if _t.name == "pointshadow" then
+			setSpriteImage(_t.spr, g_imgPointShadowLight)
+			break endif
+		if _t.name == "spot" then
+			setSpriteImage(_t.spr, g_imgSpotLight)
+			break endif
+		if _t.name == "world" then
+			setSpriteImage(_t.spr, g_imgWorldLight)
+			break
+		else
+			setSpriteImage(_t.spr, g_imgWorldShadowLight)
+			break
+		endif break repeat
+		
+		setSpriteColor(_t.spr, _t.col)
+		setSpriteScale(_t.spr, _t.sprScale)
+	endif
 return _t
 
 /* Universal light placement function. */
+// ++CORE LOADER
 function placeLightByType(_type, _pos, _dir, _col, _brightness, _range, _res)
 return placeLightByType(_type, _col, _pos, _brightness, _res, _dir, 0, _range)
 
@@ -7653,6 +7911,7 @@ function placeLightByType(_type, _col, _pos, _brightness, _res, _dir, _spread, _
 return newLight
 
 /* Places an object that contains children or lights from a template. */
+// +CORE LOADER
 function placeGroupObj(_template, _appliedTemplate, _fov)
 	var result = placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 	
@@ -7671,6 +7930,7 @@ return result
 function placeGroupObj(_template, _appliedTemplate)
 return placeGroupObj(_template, _appliedTemplate, g_cam.fov)
 
+// +CORE LOADER
 function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 	var newObj
 	var children
@@ -7718,9 +7978,14 @@ function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 		repeat
 	else
 		//DEBUG CONDITION; SHOULD NEVER OCCUR
-		debugPrint(2, ["Error in placeGroupObjNoLightTransform():",
-			getMapObjName(_template) + " is not a merged object.", 
-			"Creating placeholder waffle ..."])
+		clear(black)
+		ink(white)
+		textSize(gheight() / 25)
+		printAt(1, 1, "Error in placeGroupObjNoLightTransform():" + chr(10) +
+			getMapObjName(_template) + " is not a merged object." + chr(10) +
+			"Creating placeholder waffle ...")
+		update()
+		sleep(1)
 		
 		var newModel = loadModel("Devils Garage/waffle") // Sorry, have a waffle instead :(
 		newObj = placeObject(newModel, {0, 0, 0}, {1, 1, 1})
@@ -7733,8 +7998,75 @@ function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 	]
 return result
 
+function createObjCollider(_obj)
+	var ext = g_obj[decodeBank(_obj.bankIdx)][decodeidx(_obj.bankIdx)].ext
+	var colliderPos = getExtCenter(ext)
+	var colliderScale = absVec3(ext.hi - ext.lo) / 2
+	var colObj = [
+		.obj = placeObject(cube, _obj.pos + colliderPos, colliderScale),
+		.pos = colliderPos,
+		.scale = colliderScale,
+		.fwd = {0, 0, 1},
+		.up = {0, 1, 0}
+	]
+	colObj = applyGrpTransform(colObj, _obj)
+	setObjectPos(colObj.obj, colObj.pos)
+	setObjectScale(colObj.obj, colObj.scale)
+	setObjRot(colObj.obj, colObj.pos, colObj.fwd, colObj.up)
+return colObj
+
 /* Places instantiated object data in a cell that the object intersects. */
-function addCellToGridBitList(_obj, _midCell, _adjIdx, _skipCell)
+// +CORE LOADER
+function addCellToGridBitList(_obj, _objCollider, _midCell, _midCellPos)
+	var cellW = getCellWidth()
+	var cellHalfW = cellW / 2
+	var cellCollider = placeObject(cube, _midCellPos, {cellHalfW, cellHalfW, cellHalfW})
+	var added = false
+	var allowCell = []
+	
+	var inter = mergedObjIntersect(_obj, cellCollider)
+	if inter then
+		if _midCell < 0 then
+			_midCell = addCell(_midCellPos)
+		endif
+		
+		_obj = getGrpCollisionBits(_obj, _midCell)
+		added = true
+	endif
+	
+	var dirs = [
+		{1, 0, 0},
+		{-1, 0, 0},
+		{0, 1, 0},
+		{0, -1, 0},
+		{0, 0, 1},
+		{0, 0, -1}
+	]
+	var adjIdx
+	var adjArr = getAdj(_midCell, _midCellPos)
+	
+	/* If the object extends into an adjacent cell, allow checking gridBit for that cell. */
+	var i
+	for i = 0 to len(dirs) loop
+		adjIdx = getAdjIdxFromOffset(dirs[i])
+		setObjectPos(cellCollider, _midCellPos + dirs[i] * cellW)
+		
+		if objectIntersect(_objCollider, cellCollider) then
+			allowCell = push(allowCell, [ adjArr[adjIdx], _midCellPos + dirs[i] * cellW ])
+		endif
+	repeat
+	
+	removeObject(cellCollider)
+	
+	var result = [
+		.obj = _obj,
+		.added = added,
+		.cell = _midCell,
+		.allow  = allowCell
+	]
+return result
+
+function addCellToGridBitList2(_obj, _midCell, _adjIdx, _skipCell)
 	var cellHalfW = getCellWidth() / 2
 	var adjCell = g_cell[_midCell][1][_adjIdx]
 	var adjCellPos = getCellPosFromAdjIdx(_midCell, _adjIdx)
@@ -7742,9 +8074,11 @@ function addCellToGridBitList(_obj, _midCell, _adjIdx, _skipCell)
 	var cellCollider = placeObject(cube, adjCellPos, {cellHalfW, cellHalfW, cellHalfW})
 	var added = false
 	
-	if !contains(_skipCell, {adjCell, adjCellPos.x, adjCellPos.y, adjCellPos.z}) then
+	var allowCell = []
+	
+	//if !contains(_skipCell, {adjCell, adjCellPos.x, adjCellPos.y, adjCellPos.z}) then
 		var inter = mergedObjIntersect(_obj, cellCollider)
-			
+		
 		if inter then
 			if adjCell < 0 then
 				adjCell = addCell(adjCellPos)
@@ -7752,8 +8086,58 @@ function addCellToGridBitList(_obj, _midCell, _adjIdx, _skipCell)
 			
 			_obj = getGrpCollisionBits(_obj, adjCell)
 			added = true
+			
+			var dirs = [
+				{1, 0, 0},
+				{-1, 0, 0},
+				{0, 1, 0},
+				{0, -1, 0},
+				{0, 0, 1},
+				{0, 0, -1}
+			]
+			var adjAdjIdx
+			var mask
+			var objGridBit = getObjGridBitForCell(_obj, adjCell)
+			var adjAdjCell
+			
+			/* If the object isn't near the edge of the cell, we assume it doesn't
+			extend into that edge's adjacent cell and we therefore exclude that
+			adjacent cell from further checks. */
+			var i
+			for i = 0 to len(dirs) loop
+				adjAdjIdx = getAdjIdxFromOffset(dirs[i])
+				adjAdjCell = g_cell[adjCell][1][adjAdjIdx]
+				
+				if adjAdjCell >= 0 then
+					mask = getAdjBitmask(dirs[i])
+					
+					/*
+					if !(mask[0] & objGridBit[0]
+							or mask[1] & objGridBit[1]) then
+						_skipCell = push(_skipCell, {adjAdjCell, 
+							g_cell[adjAdjCell][0].x, g_cell[adjAdjCell][0].y, 
+							g_cell[adjAdjCell][0].z})
+					endif
+					*/
+					if mask[0] & objGridBit[0]
+							or mask[1] & objGridBit[1] then
+						allowCell = push(allowCell, adjAdjCell)
+					endif
+					/*
+					mask = [
+						[
+							0,
+							[ mask[0], mask[1] ]
+						]
+					]
+					*/
+					//debugPrint(0, [dirs[i]])
+					//debugGridBit(mask, 0)
+					//debugGridBit3d(mask, 999)
+				endif
+			repeat
 		endif
-	endif
+	//endif
 	
 	_skipCell = push(_skipCell, {adjCell, adjCellPos.x, adjCellPos.y, adjCellPos.z})
 	removeObject(cellCollider)
@@ -7761,12 +8145,153 @@ function addCellToGridBitList(_obj, _midCell, _adjIdx, _skipCell)
 	var result = [
 		.obj = _obj,
 		.added = added,
-		.skip = _skipCell
+		.skip = _skipCell,
+		.allow  = allowCell
 	]
 return result
 
 /* Places an object in the map. */
+// CORE LOADER
 function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
+	_pos = roundVec(_pos, 6)
+	mapObj newObj
+	
+	if _isGrp then
+		var newGrp = placeGroupObj(_activeObj, _activeObj)
+		newObj.obj = newGrp.obj
+		newObj.children = newGrp.children
+		newObj.lights = newGrp.lights
+	else
+		newObj.obj = placeObject(
+			getObjDef(_activeObj).obj,
+			_pos, 
+			_scale
+		)
+		newObj.children = []
+	endif
+	
+	newObj.fwd = _fwd
+	newObj.up = _up
+	newObj.scale = _scale
+	newObj.pos = _pos
+	newObj.bankIdx = _activeObj.bankIdx
+	setObjectPos(newObj.obj, _pos)
+	setObjRot(newObj.obj, _pos, _fwd, _up)
+	setGrpLightsPos(newObj, g_cam.fov)
+	
+	var canPlaceObj = true
+	var baseCell = -1
+	var baseIdx = -1
+	var refCellIdx = -1
+	
+	array cellIdx[0]
+	array checkedCellPos[0]
+	var i
+	
+	var addResult
+	var newObjCell
+	array allowCell[0]
+	
+	var objDef = g_obj[decodeBank(newObj.bankIdx)][decodeidx(newObj.bankIdx)]
+	var extCenter = getExtCenter(getExtMinMax(objDef.ext, newObj.scale, newObj.fwd, newObj.up))
+	var objCollider = createObjCollider(newObj)
+	var checkCell = getCellIdxFromPos(objCollider.pos)
+	
+	var toCheck = [ [ checkCell, getCellPosFromPos(objCollider.pos)] ]
+	var toCheckCell
+	var toCheckPos
+	
+	// Add object to all cells that it intersects
+	while len(toCheck) loop
+		toCheckCell = toCheck[0][0]
+		toCheckPos = toCheck[0][1]
+		
+		if !contains(checkedCellPos, toCheckPos) then
+			checkedCellPos = push(checkedCellPos, toCheckPos)
+			addResult = addCellToGridBitList(newObj, objCollider.obj, toCheckCell, toCheckPos)
+			// addResult.allow contains cells that the object might overlap
+			toCheck = insertArray(toCheck, addResult.allow)
+			
+			if addResult.added then
+				newObj = addResult.obj
+				cellIdx = push(cellIdx, addResult.cell)
+				
+				// Base cell, where the object data is stored
+				if len(cellIdx) == 1 then
+					baseCell = addResult.cell
+					
+					// Ensure the object doesn't already exist
+					for i = g_cellObjStart to len(g_cell[baseCell]) loop
+						if !isMapObjRef(g_cell[baseCell][i]) then
+							if mapObjEquals(g_cell[baseCell][i], newObj) then
+								canPlaceObj = false
+								
+								break
+							endif
+						endif
+					repeat
+					
+					if !canPlaceObj then break endif
+					
+					baseIdx = len(g_cell[addResult.cell])
+					refCellIdx = encodeCellIdx(addResult.cell, baseIdx)
+				// Additional cells, where object references are stored
+				else
+					mapObjRef newRef
+					newRef.cellIdx = refCellIdx
+					g_cell[addResult.cell] = push(g_cell[addResult.cell], newRef)
+				endif
+			endif
+		endif
+		
+		toCheck = remove(toCheck, 0)
+	repeat
+	
+	removeObject(objCollider.obj)
+	
+	if !canPlaceObj then
+		newObj = removeGroupObj(newObj)
+	else
+		g_cell[baseCell] = push(g_cell[baseCell], newObj)
+		
+		// Add list of what cells the object exists in.
+		array cellIdxList[len(cellIdx)]
+		var lastObjIdx
+		
+		for i = 0 to len(cellIdx) loop
+			lastObjIdx = len(g_cell[cellIdx[i]]) - 1
+			cellIdxList[i] = [ .cell = cellIdx[i], .idx = lastObjIdx ]
+		repeat
+		
+		array baseCellIdx[len(cellIdxList)]
+		g_cell[baseCell][baseIdx].cellIdx = baseCellIdx
+		
+		for i = 0 to len(cellIdxList) loop
+			g_cell[baseCell][baseIdx].cellIdx[i] = encodeCellIdx(cellIdxList[i].cell, cellIdxList[i].idx)
+		repeat
+		
+		// Store data about light sprites if we're in the editor
+		if g_editor then
+			var lightTypes = getGrpLightsTypes(newObj)
+			
+			if len(lightTypes) then
+				var objRef = [ .cell = cellIdx[0], .idx = len(g_cell[cellIdx[0]]) - 1 ]
+				
+				g_lightIcons = push(g_lightIcons, objRef)
+				
+				if contains(lightTypes, "world") or contains(lightTypes, "worldshadow") then
+					g_worldLights = push(g_worldLights, objRef)
+				endif
+			endif
+		endif
+		
+		// Uncomment to view gridBit data when an object is placed
+		//debugGridBit3d(g_cell[cellIdx[0]][len(g_cell[cellIdx[0]]) - 1].gridBitList, 999)
+		//debugGridBit(g_cell[cellIdx[0]][len(g_cell[cellIdx[0]]) - 1].gridBitList, 0)
+	endif
+return newObj
+
+function addMapObj2(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 	_pos = roundVec(_pos, 6)
 	
 	var baseCell = getCellIdxFromPos(_pos)
@@ -7824,6 +8349,9 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 		var checkCell
 		var addResult
 		var newObjCell
+		var adjDir = [ 4, 10, 12, 14, 16, 22 ]
+		
+		array allowCell[0]
 		
 		var h = -1
 		var i
@@ -7841,7 +8369,7 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 					endif
 				endif
 				baseCell = checkCell
-				addResult = addCellToGridBitList(newObj, checkCell, 13, checkedCell)
+				addResult = addCellToGridBitList2(newObj, baseCell, 13, checkedCell)
 				checkedCell = addResult.skip
 				
 				newObj = addResult.obj
@@ -7852,14 +8380,16 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 				checkCell = cellIdx[h]
 			endif
 			
-			// For each adjacent cell
-			for i = 0 to len(g_cell[checkCell][1]) loop
-				addResult = addCellToGridBitList(newObj, checkCell, i, checkedCell)
+			/* We check only cardinal adjacent cells instead of all of them on the assumption that
+			any non-cardinal adjacency will still be found because it's another cell's cardinal 
+			adjacency. This gives a small speed boost. */
+			for i = 0 to len(adjDir) loop
+				addResult = addCellToGridBitList2(newObj, checkCell, adjDir[i], checkedCell)
 				checkedCell = addResult.skip
 				
 				if addResult.added then
 					newObj = addResult.obj
-					newObjCell = g_cell[checkCell][1][i]
+					newObjCell = g_cell[checkCell][1][adjDir[i]]
 					cellIdx = push(cellIdx, newObjCell)
 					mapObjRef newRef
 					newRef.cellIdx = refCellIdx
@@ -7917,6 +8447,7 @@ return newObj
 	// OBJECT REMOVAL
 
 /* Removes an object or merged object. */
+// +CORE LOADER
 function removeGroupObj(_obj)
 	var i
 	for i = 0 to len(_obj.lights) loop
@@ -7966,6 +8497,7 @@ return _lightRecords
 
 /* Rebuilds cell/idx list for an object when its index in a cell has changed
 due to the deletion of a lower index object. */
+// +CORE LOADER
 function rebuildCellIdxList(_cell, _newIdx)
 	if !isMapObjRef(g_cell[_cell][_newIdx]) then
 		var newCellIdx = encodeCellIdx(_cell, _newIdx)
@@ -7996,68 +8528,173 @@ function rebuildCellIdxList(_cell, _newIdx)
 return void
 
 /* Removes an object from the map. */
-function deleteMapObj(_cell, _idx)
-	var obj = getMapObjFromRef(g_cell[_cell][_idx])
-	
-	removeGroupObj(obj)
-	g_sel = adjustSelForRemovedObj(g_sel, decodeCell(obj.cellIdx[0]), 
-		decodeIdx(obj.cellIdx[0]))
-	
-	var i
+// +CORE LOADER
+function deleteMapObj(_obj)
 	var delCell
 	var delIdx
-	var j
 	
-	for i = 0 to len(obj.cellIdx) loop
-		delCell = decodeCell(obj.cellIdx[i])
-		delIdx = decodeIdx(obj.cellIdx[i])
+	if isMapObjRef(_obj) then
+		delCell = decodeCell(obj.cellIdx)
+		delIdx = decodeIdx(obj.cellIdx)
+		_obj = getMapObjFromRef(g_cell[delCell][delIdx])
+	endif
+	
+	removeGroupObj(_obj)
+	
+	var i
+	var j
+	var k
+	var l
+	
+	for i = 0 to len(_obj.cellIdx) loop
+		delCell = decodeCell(_obj.cellIdx[i])
+		delIdx = decodeIdx(_obj.cellIdx[i])
 		
 		g_cell[delCell] = remove(g_cell[delCell], delIdx)
-		removeWorldLightRecord(delCell, delIdx)
-		removeLightIconRecord(delCell, delIdx)
-		g_lightIcons = adjustLightRecordsForRemovedObj(delCell, delIdx, g_lightIcons)
-		g_worldLights = adjustLightRecordsForRemovedObj(delCell, delIdx, g_worldLights)
 		
 		for j = delIdx to len(g_cell[delCell]) loop
 			rebuildCellIdxList(delCell, j)
 		repeat
 	repeat
 	
+	//g_dirtyMap = true
+return void
+
+/* Removes an object from the map and initializes the editor for the removal. */
+function edDeleteMapObj(_cell, _idx)
+	//debugPrint(0, [_cell, _idx, "len(g_cell)", len(g_cell), "len(g_cell[_cell])", len(g_cell[_cell])])
+	var obj = getMapObjFromRef(g_cell[_cell][_idx])
+	g_sel = adjustSelForRemovedObj(g_sel, _cell, 
+		_idx)
+		
+	deleteMapObj(obj)
+	
+	var i
+	var j
+	var k
+	var l
+	var delCell
+	var delIdx
+	
+	for i = 0 to len(obj.cellIdx) loop
+		delCell = decodeCell(obj.cellIdx[i])
+		delIdx = decodeIdx(obj.cellIdx[i])
+		
+		removeWorldLightRecord(delCell, delIdx)
+		removeLightIconRecord(delCell, delIdx)
+		g_lightIcons = adjustLightRecordsForRemovedObj(delCell, delIdx, g_lightIcons)
+		g_worldLights = adjustLightRecordsForRemovedObj(delCell, delIdx, g_worldLights)
+		
+		
+		if len(g_cell[delCell]) <= g_cellObjStart then
+			for j = i + 1 to len(obj.cellIdx) loop
+				if decodeCell(obj.cellIdx[j]) > delCell then
+					obj.cellIdx[j] = encodeCellIdx(decodeCell(obj.cellIdx[j]) - 1, decodeIdx(obj.cellIdx[j]))
+				endif
+			repeat
+		
+			g_cell = remove(g_cell, delCell)
+			// objs' cellIdx lists
+			for j = 0 to len(g_cell) loop
+				for k = g_cellObjStart to len(g_cell[j]) loop
+					var obj = g_cell[j][k]
+					
+					// Fix objects' cellIdx entries
+					if !isMapObjRef(obj) then
+						for l = 0 to len(obj.cellIdx) loop
+							if decodeCell(obj.cellIdx[l]) > delCell then
+								//debugPrint(0, ["old", decodeCell(obj.cellIdx[l]), decodeIdx(obj.cellIdx[l]), 
+								//	"new",decodeCell(obj.cellIdx[l]) - 1, decodeIdx(obj.cellIdx[l])])
+								obj.cellIdx[l] = encodeCellIdx(decodeCell(obj.cellIdx[l]) - 1, decodeIdx(obj.cellIdx[l]))
+								obj.gridBitList[l][0] -= 1
+							endif
+						repeat
+					else
+						if decodeCell(obj.cellIdx) > delCell then
+							obj.cellIdx = encodeCellIdx(decodeCell(obj.cellIdx) - 1, decodeIdx(obj.cellIdx))
+						endif
+					endif
+					
+					g_cell[j][k] = obj
+				repeat
+				
+				// Fix cells' adjacent lists
+				for k = 0 to len(g_cell[j][1]) loop
+					if g_cell[j][1][k] == delCell then
+						g_cell[j][1][k] = -1
+					else if g_cell[j][1][k] > delCell then
+						g_cell[j][1][k] -= 1
+					endif endif
+				repeat
+			repeat
+			
+			// Fix selected object entries' cells
+			for k = 0 to len(g_sel) loop
+				for l = 0 to len(g_sel[k]) loop
+					if g_sel[k][l].cell > delCell then
+						g_sel[k][l].cell -= 1
+					endif
+				repeat
+			repeat
+			
+			// Fix light icon records' cells
+			for k = 0 to len(g_lightIcons) loop
+				if g_lightIcons[k].cell > delCell then
+					g_lightIcons[k].cell -= 1
+				endif
+			repeat
+			
+			// Fix world light records' cells
+			for k = 0 to len(g_worldLights) loop
+				if g_worldLights[k].cell > delCell then
+					g_worldLights[k].cell -= 1
+				endif
+			repeat
+			
+			// Fix cursor cell
+			if g_cur.cell == delCell then
+				g_cur.cell = -1
+			else if g_cur.cell > delCell then
+				g_cur.cell -= 1
+			endif endif
+			
+			// Fix camera cell
+			if g_cam.cell == delCell then
+				g_cam.cell = -1
+			else if g_cam.cell > delCell then
+				g_cam.cell -= 1
+			endif endif
+			// objRefs' cellIdx cells
+			// obj gridBitList
+			// cell adj list
+			// selection cells
+			// light icon cells
+			// world light cells
+			// cursor current cell/cellPos
+			// camera current cell/cellPos
+		endif
+	repeat
+	
 	g_dirtyMap = true
 return void
 
 /* Removes instantiated elements of a light object. */
+// CORE LOADER
 function deleteLightObj(_obj)
 	removeLight(_obj.light)
 	_obj.light = -1
-	removeSprite(_obj.spr)
+	if g_editor then
+		removeSprite(_obj.spr)
+	endif
 	_obj.spr = -1
 return _obj
 
-/* Deletes every object in the map and resets the editor state. */
-function clearMap()
-return clearMap(true)
+function initEdForClearedMap()
+return initEdForClearedMap(true)
 
-function clearMap(_resetActiveObj)
-	showLoadBox("Clearing current map ...", true, false, false)
+function initEdForClearedMap(_resetActiveObj)
+	//showLoadBox("Clearing current map ...", true, false, false)
 	initSel()
-	
-	var i
-	var j
-	
-	for i = 0 to len(g_cell) loop
-		j = g_cellObjStart
-		while j < len(g_cell[i]) loop
-			if !isMapObjRef(g_cell[i][j]) then
-				showLoadBox("Clearing current map ...", true, false, false)
-				
-				deleteMapObj(i, j)
-				
-				j -= 1
-			endif
-			j += 1
-		repeat
-	repeat
 	
 	for i = 0 to len(g_cellOutline) loop
 		if g_cellOutline[i].isValid then
@@ -8076,13 +8713,59 @@ function clearMap(_resetActiveObj)
 		createActiveObj(2, 0)
 	endif
 	
+	//removeLoadSpr()
+return void
+
+/* Deletes every object in the map and resets the editor state. */
+// CORE LOADER
+function clearMap()
+	//showLoadBox("Clearing current map ...", true, false, false)
+	//initSel()
+	
+	var i
+	var j
+	
+	for i = 0 to len(g_cell) loop
+		j = g_cellObjStart
+		while j < len(g_cell[i]) loop
+			if !isMapObjRef(g_cell[i][j]) then
+				//showLoadBox("Clearing current map ...", true, false, false)
+				
+				deleteMapObj(g_cell[i][j])
+				
+				j -= 1
+			endif
+			j += 1
+		repeat
+	repeat
+	
+	/*
+	for i = 0 to len(g_cellOutline) loop
+		if g_cellOutline[i].isValid then
+			removeCellOutlineObj(g_cellOutline[i])
+		endif
+	repeat
+	
+	initCam()
+	if _resetActiveObj then removeActiveObj() endif
+	initCur()
+	initCell()
+	g_lightIcons = []
+	g_worldLights = []
+	
+	if _resetActiveObj then
+		createActiveObj(2, 0)
+	endif
+	
 	removeLoadSpr()
+	*/
 return void
 
 	// ----------------------------------------------------------------
 	// OBJECT RETRIEVAL
 
 /* If the object exists in the cell, gets its index. */
+// CORE LOADER
 function getObjCopyFromCell(_obj, _cell, _skipCell)
 	_obj = getMapObjFromRef(_obj)
 	var found = false
@@ -8111,6 +8794,7 @@ function getObjCopyFromCell(_obj, _cell, _skipCell)
 return result
 
 /* Gets all cells/indices in which the object exists. */
+// CORE LOADER
 function getAllObjCopies(_cell, _idx)
 	array cellIdx[0]
 	
@@ -8126,6 +8810,7 @@ function getAllObjCopies(_cell, _idx)
 return cellIdx
 
 // _refList elements are structs in the form [ .cell = INT, .idx = INT ]
+// CORE LOADER
 function getObjListFromCellIdxList(_refList)
 	array objList[len(_refList)]
 	
@@ -8205,6 +8890,7 @@ function unmergeObj(_obj)
 return unmerged
 
 /* Checks whether _obj is actually a reference to another object. */
+// CORE LOADER
 function isMapObjRef(_obj)
 	var isRef = false
 	
@@ -8216,6 +8902,7 @@ function isMapObjRef(_obj)
 return isRef
 
 /* Returns the actual mapObj that a reference points to. */
+// CORE LOADER
 function getMapObjFromRef(_ref)
 	var obj
 	
@@ -8227,6 +8914,7 @@ function getMapObjFromRef(_ref)
 return obj
 
 /* Returns the object's cell number. */
+// CORE LOADER
 function getMapObjCell(_obj)
 	var cell
 	
@@ -8238,6 +8926,7 @@ function getMapObjCell(_obj)
 return cell
 
 /* Returns the object's index number. */
+// CORE LOADER
 function getMapObjIdx(_obj)
 	var idx
 	
@@ -8252,6 +8941,7 @@ return idx
 	// LIGHT OBJECT
 
 /* Returns an active light of the specifed name. */
+// CORE LOADER
 function getActiveLightFromName(_name)
 	var newObj
 	
@@ -8274,6 +8964,7 @@ function getActiveLightFromName(_name)
 return newObj
 
 /* Default values for a light object. */
+// CORE LOADER
 function initLightObj()
 	lightObj l
 	l.light = -1
@@ -8300,12 +8991,26 @@ function hideLightSprIfOutOfRange(_obj, _cell, _cellPos)
 	endif
 return hidden
 
+/* Removes any entry in g_lightIcons that's out of camera range and hides the light's
+sprite. Needs to be called after adding object(s) to ensure any new sprites are correctly
+dealt with. */
+function pruneLightIcons()
+	var i
+	for i = 0 to len(g_lightIcons) loop
+		if hideLightSprIfOutOfRange(g_cell[g_lightIcons[i].cell][g_lightIcons[i].idx], 
+				g_cam.cell, g_cam.cellPos) then
+			g_lightIcons = remove(g_lightIcons, i)
+		endif
+	repeat
+return void
+
 /* This function modifies properties of the object passed to it in order
 to apply recursive transforms to lights to sync them with the rest of the
 object. This is needed because lights can't be auto-modified as part of an 
 object group like objects can. DO NOT modify this function to return the object, 
 because these object modifications are only relevant in the context of this
 specific function and should be discarded when done. */
+// CORE LOADER
 function setGrpLightsPos(_obj, _fov)
 	var i
 	var light2dPos
@@ -8314,7 +9019,9 @@ function setGrpLightsPos(_obj, _fov)
 		_obj.lights[i] = applyGrpPos(_obj.lights[i], _obj)
 		light2dPos = worldPosToScreenPos(_obj.lights[i].pos, 
 			g_cam.fwd, g_cam.up, g_cam.pos, _fov)
-		setSpriteLocation(_obj.lights[i].spr, light2dPos)
+		if g_editor then
+			setSpriteLocation(_obj.lights[i].spr, light2dPos)
+		endif
 		setLightPos(_obj.lights[i].light, _obj.lights[i].pos)
 	repeat
 	
@@ -8440,6 +9147,7 @@ function restoreGrpLightsSprCol(_obj)
 return void
 
 /* Sets brightness for all lights in a merged object. */
+// CORE LOADER
 function setGrpLightsBrightness(_obj, _br)
 return setGrpLightsBrightness(_obj, _br, [])
 
@@ -8471,6 +9179,7 @@ function offsetGrpLightsBrightness(_obj, _offset, _decimals)
 return _obj
 
 /* Sets brightess of all world lights in the map. */
+// CORE LOADER
 function setWorldLightsBrightness(_br, _writeBr)
 	var i
 	for i = 0 to len(g_worldLights) loop
@@ -8521,6 +9230,7 @@ function restoreWorldLightsBrightness()
 return void
 
 /* Sets spread for all lights in a merged object. */
+// CORE LOADER
 function setGrpLightsSpread(_obj, _spread)
 	var i
 	for i = 0 to len(_obj.lights) loop
@@ -8551,6 +9261,7 @@ function offsetGrpLightsSpread(_obj, _offset)
 return _obj
 
 /* Sets resolution for all lights in a merged object. */
+// CORE LOADER
 function setGrpLightsRes(_obj, _res)
 return setGrpLightsRes(_obj, _res, _obj)
 
@@ -8610,6 +9321,7 @@ function offsetGrpLightsRes(_obj, _offset, _objCopy)
 return _obj
 
 /* Sets range for all lights in a merged object. */
+// CORE LOADER
 function setGrpLightsRange(_obj, _range)
 return setGrpLightsRange(_obj, _range, _obj)
 
@@ -8663,12 +9375,15 @@ function offsetGrpLightsRange(_obj, _offset, _objCopy)
 return _obj
 
 /* Sets color for all lights in a merged object. */
+// CORE LOADER
 function setGrpLightsCol(_obj, _col)
 	var i
 	for i = 0 to len(_obj.lights) loop
 		_obj.lights[i].col = _col
 		setLightColor(_obj.lights[i].light, _col)
-		setSpriteColor(_obj.lights[i].spr, _col)
+		if g_editor then
+			setSpriteColor(_obj.lights[i].spr, _col)
+		endif
 	repeat
 	
 	for i = 0 to len(_obj.children) loop
@@ -8677,6 +9392,7 @@ function setGrpLightsCol(_obj, _col)
 return _obj
 
 /* Gets a list of the light types present in a merged object. */
+// CORE LOADER
 function getGrpLightsTypes(_obj)
 return getGrpLightsTypes(_obj, [])
 
@@ -8694,6 +9410,7 @@ function getGrpLightsTypes(_obj, _types)
 return _types
 
 /* Check whether a merged object contains any lights. */
+// CORE LOADER
 function objContainsLight(_obj)
 return objContainsLight(_obj, false)
 
@@ -8709,6 +9426,7 @@ function objContainsLight(_obj, _result)
 return _result
 
 /* Removes a given world light from the global list of world lights. */
+// CORE LOADER
 function removeWorldLightRecord(_cell, _idx)
 	g_worldLights = removeLightRecord(g_worldLights, _cell, _idx)
 return void
@@ -8723,6 +9441,7 @@ function removeLightIconRecord(_cell, _idx)
 return void
 
 /* General-purpose removal of specialized light record list entries. */
+// CORE LOADER
 function removeLightRecord(_arr, _cell, _idx)
 	var i = 0
 	while i < len(_arr) loop
@@ -9613,8 +10332,6 @@ function warpMassSelPos(_prevCurPos)
 		repeat
 	return _newPos
 	
-	showLoadBox("Recalculating mass selection area ...", false, true, false)
-	
 	var newPos = _prevCurPos
 	newPos = warpMassSelPos_moveAlongAxis(0, newPos, _prevCurPos)
 	newPos = warpMassSelPos_moveAlongAxis(1, newPos, _prevCurPos)
@@ -9629,6 +10346,7 @@ return void
 	// OBJECT PROPERTIES
 
 /* Sets visibility for a merged object. */
+// CORE LOADER
 function setGroupVisibility(_obj, _visible)
 return setGroupVisibility(_obj, _visible, false)
 
@@ -9650,6 +10368,7 @@ function setGroupVisibility(_obj, _visible, _includeSpr)
 return void
 
 /* Sets material for a merged object. */
+// CORE LOADER
 function setGroupMaterial(_obj, _tint, _metal, _rough, _em)
 	if len(_obj.children) then
 		var i
@@ -9668,6 +10387,7 @@ return void
 /* Sets rotation for a merged object. _pos is needed in order for
 safeObjPointAt() to work; if the bug in objectPoinAt() is fixed in the
 future, _pos will no longer be needed. */
+// CORE LOADER
 function setObjRot(_obj, _pos, _fwd, _up)
 	/* A straight up or down forward wrecks the algorithm, so fudge the 
 	vectors if necessary. */
@@ -9688,7 +10408,7 @@ function setObjRot(_obj, _pos, _fwd, _up)
 	var roll = getAngleBetweenVecs(unrolledUp, _up)
 	
 	if roll and roll >= -360 and roll <= 360 then
-		if roundVec(axisRotVecBy(unrolledUp, _fwd, roll), 2) != rouldVec(_up, 2) then
+		if roundVec(axisRotVecBy(unrolledUp, _fwd, roll), 2) != roundVec(_up, 2) then
 			roll *= -1
 		endif
 		
@@ -9698,6 +10418,7 @@ return void
 
 /* objectPointAt() doesn't like straight up/down -- it will make the object
 disappear, which we fix by never using an exact up/down rotation. */
+// CORE LOADER
 function safeObjectPointAt(_obj, _objPos, _dir)
 	var dif = _dir - _objPos
 	
@@ -9710,6 +10431,7 @@ return void
 
 /* Objects in a group use the group's local space for scale. This function 
 applies the group's scale modifier to a non-group object. */
+// CORE LOADER
 function applyGrpScale(_grpScale, _childScale, _childFwd, _childUp)
 	var locR = cross(_childFwd, _childUp)
 	var deg = getAngleBetweenVecs({-1, 0, 0}, locR)
@@ -9735,6 +10457,7 @@ return _childScale * appliedScale
 /* Objects in a group use the group's local space for position, rotation, and
 scale. This function applies the group's postion/rotation/scale modifiers to 
 a non-group object. */
+// CORE LOADER
 function applyGrpTransform(_obj, _grpObj)
 return applyGrpTransform(_obj, _grpObj, true)
 
@@ -9759,6 +10482,7 @@ return _obj
 
 /* Objects in a group use the group's local space for position. This 
 function applies the group's postion modifier to a non-group object. */
+// CORE LOADER
 function applyGrpPos(_obj, _grpObj)
 return applyGrpPos(_obj, _grpObj, true)
 
@@ -9775,6 +10499,7 @@ return _obj
 
 /* Checks equality of two mapObjs. Does not consider equality among children or
 lights within the object. */
+// CORE LOADER
 function mapObjEquals(_obj1, _obj2)
 	var eq = _obj1.fwd == _obj2.fwd 
 		and _obj1.up == _obj2.up 
@@ -9867,6 +10592,7 @@ function getAllChildNamesInObjDef(_def)
 return getAllChildNames(_def, _def.name, [], true)
 
 /* Is the child present somewhere in the object's child hierarchy? */
+// CORE LOADER
 function objContains(_obj, _childName)
 return objContains(_obj, _childName, false)
 
@@ -9946,9 +10672,11 @@ return void
 /* To reduce variable count, bank and index numbers are stored together
 in a single variable. They each occupy 16 bits of a 32-bit int, with the
 16 MSBs representing the bank and the 16 LSBs representing the index. */
+// CORE LOADER
 function encodeBankIdx(_bank, _idx)
 return bitFieldInsert(0, 0, 16, _idx) | bitFieldInsert(0, 16, 16, _bank)
 
+// CORE LOADER
 function decodeBankIdx(_bankIdx)
 	result = [
 		.bank = bitFieldExtract(_bankIdx, 16, 16),
@@ -9956,27 +10684,34 @@ function decodeBankIdx(_bankIdx)
 	]
 return result
 
+// CORE LOADER
 function decodeBank(_bankIdx)
 return bitFieldExtract(_bankIdx, 16, 16)
 
+// CORE LOADER
 function decodeIdx(_bankIdx)
 return bitFieldExtract(_bankIdx, 0, 16)
 
+// CORE LOADER
 function getObjBankIdx(_obj)
 return decodeBankIdx(_obj.bankIdx)
 
+// CORE LOADER
 function setObjBankIdx(_obj, _bank, _idx)
 	_obj.bankIdx = encodeBankIdx(_bank, _idx)
 return _obj
 
 /* Cell and index work the same way as bank/index but are separate functions
 both for clarity and in case the system changes. */
+// CORE LOADER
 function decodeCell(_cellIdx)
 return bitFieldExtract(_cellIdx, 16, 16)
 
+// CORE LOADER
 function encodeCellIdx(_cell, _idx)
 return bitFieldInsert(0, 0, 16, _idx) | bitFieldInsert(0, 16, 16, _cell)
 
+// CORE LOADER
 function setMapObjRefCellIdx(_ref, _cell, _idx)
 	_ref.cellIdx = encodeCellIdx(_cell, _idx)
 return _ref
@@ -9984,6 +10719,7 @@ return _ref
 /* To reduce variable count, object names are stored only in the definition
 and not cached in the object instantiation. This function reads the object's 
 name out of the appropriate definition. */
+// CORE LOADER
 function getMapObjName(_obj)
 	if isMapObjRef(_obj) then
 		_obj = getMapObjFromRef(_obj)
@@ -10391,12 +11127,27 @@ return void
 
 /* Moves the cursor cell outline to the correct location. */
 function updateCurCellOutlinePos()
+	/*
 	if g_visibleCellOutlines then
 		if g_cellOutline[0].isValid then
 			setObjectPos(g_cellOutline[0].grp, g_cell[g_cur.cell][0])
 			
 			if g_cur.cell == g_cam.cell then
 				updateCamCellOutlinePos()
+			endif
+			
+			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
+		endif
+	endif
+	*/
+	if g_visibleCellOutlines then
+		if g_cellOutline[0].isValid then
+			if g_cur.cell >= 0 then
+				setObjectPos(g_cellOutline[0].grp, g_cell[g_cur.cell][0])
+				setCellOutlineCol(0, g_theme.inactiveCol)
+			else
+				setObjectPos(g_cellOutline[0].grp, getCellPosFromPos(g_cur.pos))
+				setCellOutlineCol(0, g_theme.bgCol)
 			endif
 			
 			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
@@ -10631,52 +11382,69 @@ return state
 
 /* Adds a new cell in the map. The cell will snap to the closest appropriate
 position to _pos. */
+// CORE LOADER
 function addCell(_pos)
+return addCell(_pos, [])
+
+function addCell(_pos, _savedAdj)
+	//debugPrint(0, [_pos, _savedAdj])
 	var idx = len(g_cell)
 	
 	g_cell = push(g_cell, [ 0, [] ]) // [ pos, adjacent cells ]
 	g_cell[idx][0] = getCellPosFromPos(_pos) // Cell position
 	
-	var adj = generateAdjacentCells(_pos)
-	g_cell[idx][1] = adj // Adjacent cells
-	/* Additional indices in g_cell[idx] contain objects within the cell. If you
-	need to iterate objects in the cell, begin indexing at g_cellObjStart, which
-	gives the first index in a cell that contains an object. */
-	
-	var i
-	for i = 0 to len(adj) loop
-		if adj[i] > -1 and i != 13 then
-			updateAdjacentCell(adj[i], 
-				getAdjIdxFromOffset(getOffsetFromAdjIdx(i) * -1), idx)
+	/* If _savedAdj contains data, we assume that all cells are being loaded from
+	and that we don't need to update other cells' data, because their saved data
+	will already be correct. */
+	if !len(_savedAdj) then
+		var adj = generateAdjacentCells(_pos)
+		
+		g_cell[idx][1] = adj // Adjacent cells
+		/* Additional indices in g_cell[idx] contain objects within the cell. If you
+		need to iterate objects in the cell, begin indexing at g_cellObjStart, which
+		gives the first index in a cell that contains an object. */
+		
+		var i
+		for i = 0 to len(adj) loop
+			if adj[i] > -1 and i != 13 then
+				updateAdjacentCell(adj[i], 
+					getAdjIdxFromOffset(getOffsetFromAdjIdx(i) * -1), idx)
+			endif
+		repeat
+		
+		// If we're mass selecting, add cell to mass selection if in range
+		if g_cur.mode == "masssel" then
+			var selExt = [
+				.lo = {0, 0, 0},
+				.hi = g_cur.pos - g_cur.massSel.pos
+			]
+			if getExtIntersect(selExt, g_cur.massSel.pos, {1, 1, 1}, {0, 0, 1}, {0, 1, 0}, 
+					g_cellExt, g_cell[idx][0], {1, 1, 1}, {0, 0, 1}, {0, 1, 0}) then
+				g_cur.massSel.newlyAddedCell = idx
+			endif
 		endif
-	repeat
-	
-	// If we're mass selecting, add cell to mass selection if in range
-	if g_cur.mode == "masssel" then
-		var selExt = [
-			.lo = {0, 0, 0},
-			.hi = g_cur.pos - g_cur.massSel.pos
-		]
-		if getExtIntersect(selExt, g_cur.massSel.pos, {1, 1, 1}, {0, 0, 1}, {0, 1, 0}, 
-				g_cellExt, g_cell[idx][0], {1, 1, 1}, {0, 0, 1}, {0, 1, 0}) then
-			g_cur.massSel.newlyAddedCell = idx
+		
+		if g_cam.cell < 0 then
+			if getCellPosFromPos(g_cam.pos) == g_cell[idx][0] then
+				g_cam.cell = idx
+				updateCamCellOutlinePos()
+			endif
 		endif
+	else
+		g_cell[idx][1] = _savedAdj
 	endif
 	
-	if g_cam.cell < 0 then
-		if getCellPosFromPos(g_cam.pos) == g_cell[idx][0] then
-			g_cam.cell = idx
-			updateCamCellOutlinePos()
-		endif
-	endif
+
 return idx
 
 /* Gets the width/height/depth of a cell. */
+// +CORE LOADER
 function getCellWidth()
 return abs(g_cellExt.lo.x) + abs(g_cellExt.hi.x)
 
 /* Returns the adjacent indices that are on the sides of a cell in the given
 direction. */
+// CORE LOADER
 function getAdjAffectedByMovement(_dir)
 	array adj[0]
 	
@@ -10822,6 +11590,7 @@ return adj
 
 /* Discovers which cells are adjacent to the cell that contains the given 
 position. */
+// CORE LOADER
 function generateAdjacentCells(_pos)
 	array adj[27]
 	var cellW = getCellWidth()
@@ -10843,12 +11612,14 @@ function generateAdjacentCells(_pos)
 return adj
 
 /* Assigns a neighbor cell to a cell's adj array and update cell oulines. */
+// CORE LOADER
 function updateAdjacentCell(_idx, _adjIdx, _neighborIdx)
 	g_cell[_idx][1][round(_adjIdx)] = _neighborIdx
 return void
 
 /* Gets a cell's array of adjacent cells. _pos allows for a fallback check if
 _midCell dosn't exist. */
+// CORE LOADER
 function getAdj(_midCell, _pos)
 	array adj[27]
 	
@@ -10883,15 +11654,18 @@ function getAdj(_midCell, _pos)
 return adj
 
 /* Converts an adjacent index to a cell position relative to the middle cell. */
+// CORE LOADER
 function getOffsetFromAdjIdx(_idx)
 return {_idx % 3 - 1, floor((_idx % 9) / 3) - 1, floor(_idx / 9) - 1}
 
 /* Returns an adjacent cell's position. */
+// CORE LOADER
 function getCellPosFromAdjIdx(_midCell, _adjIdx)
 return g_cell[_midCell][0] + getOffsetFromAdjIdx(_adjIdx) * getCellWidth()
 
 /* Returns an array indices of cells whose midpoints are within the given
 range from the origin. */
+// CORE LOADER
 function getCellsInRange(_origin, _range)
 	array cells[0]
 	
@@ -10904,6 +11678,7 @@ function getCellsInRange(_origin, _range)
 return cells
 
 /* Converts a position offset from a cell into an index for adjacent positions. */
+// CORE LOADER
 function getAdjIdxFromOffset(_off)
 	var adjIdx
 	
@@ -10915,6 +11690,7 @@ function getAdjIdxFromOffset(_off)
 return adjIdx
 
 /* Returns whether the position is within the given cell. */
+// CORE LOADER
 function isPosInCell(_pos, _cellIdx)
 	var isInCell = true
 	
@@ -10936,6 +11712,7 @@ return isInCell
 
 /* Finds the position of the cell that does (or would) contain _pos. The
 cell itself does not necessarily exist. */
+// CORE LOADER
 function getCellPosFromPos(_pos)
 	// Assume cell is an equal-sided cube
 	var cellW = getCellWidth()
@@ -10943,6 +11720,7 @@ function getCellPosFromPos(_pos)
 return cellPos
 
 /* Finds the cell that contains position _pos. */
+// CORE LOADER
 function getCellIdxFromPos(_pos)
 	var idx = -1
 	
@@ -10957,6 +11735,7 @@ function getCellIdxFromPos(_pos)
 return idx
 
 /* Finds the cell whose midpoint is _pos. */
+// CORE LOADER
 function getCellIdxFromCellPos(_pos)
 return getCellIdxFromCellPos(_pos, [])
 
@@ -10985,6 +11764,7 @@ return idx
 
 /* Snaps a direction's axis values to 1, 0, or -1. Conceptually equivalent to
 a unit vector for finding adjacent cells. */
+// CORE LOADER
 function getCellDir(_dir)
 	var i
 	for i = 0 to 3 loop
@@ -10998,14 +11778,15 @@ function getCellDir(_dir)
 return _dir
 
 /* Checks if a position has moved into an adjacent cell. */
-function updateCellContext(_oldCell, _oldCellPos, _newPos, _allowAddCell)
+// CORE LOADER
+function updateCellContext(_oldCell, _oldCellPos, _newPos, _allowAddCell, _forceUpdate)
 	var result = [
 		.cell = _oldCell,
 		.cellPos = _oldCellPos
 	]
 	
 	var newCellPos = getCellPosFromPos(_newPos)
-	if _oldCellPos != newCellPos then
+	if _oldCellPos != newCellPos or _forceUpdate then
 		var cellIdx = -1
 		var adjCells = getAdj(_oldCell, _oldCellPos)
 		
@@ -11035,7 +11816,7 @@ return result
 function updateCamCellContext()
 	var oldCell = g_cam.cell
 	var oldCellPos = g_cam.cellPos
-	var camCellResult = updateCellContext(g_cam.cell, g_cam.cellPos, g_cam.pos, false)
+	var camCellResult = updateCellContext(g_cam.cell, g_cam.cellPos, g_cam.pos, false, false)
 	
 	g_cam.cell = camCellResult.cell
 	g_cam.cellPos = camCellResult.cellPos
@@ -11047,6 +11828,7 @@ return void
 /* Gets a binary representation of an object's collision box within a cell. 
 The cell (5x5x5 dimensions) is divided into 125 units, with 0 at {0, 0, 0}
 and 124 at {5, 5, 5} (incrementing x first, then y, then z). */
+// CORE LOADER
 function getObjCollisionBits(_obj, _objCell, _gridCellLen, _posOffset)
 	var def = getObjDef(_obj)
 	var objExt = def.ext
@@ -11122,6 +11904,7 @@ return bitInt
 /* Constructs collision bit data for an object and all its children within 
 the bounds of the given cell. Each parent within the hierarchy has a 
 gridBit comprised of the intersection of all of its children's gridBits. */
+// CORE LOADER
 function getGrpCollisionBits(_obj, _cell)
 	var depth = 0
 	var childIdx = 0
@@ -11208,6 +11991,7 @@ return curObj
 
 /* Quickly finds an approximation of a collision box within a cell. Like
 getObjCollisionBits() but faster and less accurate. */
+// CORE LOADER
 function getExtCollisionBitsFast(_pos, _ext, _scale, _fwd, _up)
 	var cellW = getCellWidth()
 	var cellPos = getCellPosFromPos(_pos)
@@ -11260,6 +12044,7 @@ return cells
 
 /* Gets bitmask for the collision positions on the edge of the cell in the 
 given dirction. */
+// CORE LOADER
 function getAdjBitmask(_dir)
 	array mask[bitLenToInt(g_cellBitLen)]
 	mask[0] = 0
@@ -11269,27 +12054,27 @@ function getAdjBitmask(_dir)
 	a 32-bit int. */
 	if _dir.x then
 		if _dir.x > 0 then
-			mask[0] = mask[0] | int("9520900167075897608")
-			mask[1] = mask[1] | int("595056260442243600")
-		else
 			mask[0] = mask[0] | int("595056260442243600")
 			mask[1] = mask[1] | int("1190112520884487201")
+		else
+			mask[0] = mask[0] | int("1190112520884487201")
+			mask[1] = mask[1] | int("74382032555280450")
 		endif
 	endif
 	
 	if _dir.y then
 		if _dir.y > 0 then
-			mask[0] = mask[0] | int("17870283853982088704")
-			mask[1] = mask[1] | int("1090715567259648")
+			mask[0] = mask[0] | int("1090715567259648")
+			mask[1] = mask[1] | int("66571995072")
 		else
-			mask[0] = mask[0] | int("17042430738432")
-			mask[1] = mask[1] | int("34902898152308767")
+			mask[0] = mask[0] | int("34902898152308767")
+			mask[1] = mask[1] | int("2130303842304")
 		endif
 	endif
 	
 	if _dir.z then
 		if _dir.z > 0 then
-			mask[1] = mask[1] | 33554431
+			mask[1] = mask[1] | int("2305842940494217216")
 		else
 			mask[0] = mask[0] | 33554431
 		endif
@@ -11301,6 +12086,7 @@ that can be copied along other axes to fill out the binary collision box
 representation.
 
 _axis: 0 = x, 1 = y, 2 = z */
+// CORE LOADER
 function getAdjBitWidths(_axisMin, _axisMax, _cellW, _firstBitPos, _axis)
 	var bitFullW = ceil(_axisMax) - floor(_axisMin)
 	var axisUnit = pow(_cellW, _axis)
@@ -11327,6 +12113,7 @@ return adjW
 
 /* Finds the binary collision box bit index equivalent of a normal position. 
 Assumes the position is within the cell indicated by _cellPos. */
+// CORE LOADER
 function getGridIdxFromPosInCell(_pos, _cellPos, _useCellPos)
 	var cellW = getCellWidth()
 	
@@ -11338,6 +12125,7 @@ function getGridIdxFromPosInCell(_pos, _cellPos, _useCellPos)
 return _pos.x + _pos.y * cellW + _pos.z * cellW * cellW
 
 /* Gives the regular position equivalent of a binary collision box bit index. */
+// CORE LOADER
 function getPosFromGridIdx(_midCell, _idx)
 return getPosFromGridIdx(_midCell, 13, _idx)
 
@@ -11365,6 +12153,7 @@ return result
 
 /* Searches in an object's grid bit list and returns the data for a specific
 cell.  */
+// CORE LOADER
 function getObjGridBitForCell(_obj, _cell)
 	array gridBit[bitLenToInt(g_cellBitLen)]
 	
@@ -11404,7 +12193,6 @@ function debugGridBit3d(_bitArr, _dur)
 	var i
 	var j
 	var bitPos
-	
 	for i = 0 to len(_bitArr) loop
 		for j = 0 to g_cellBitLen loop
 			if bitGet(_bitArr[i][1][floor(j / g_intLen)], j % g_intLen) then
@@ -11466,6 +12254,7 @@ function triggerMenuAction(_sel, _menu)
 					endif endif
 					if shouldClear then
 						clearMap()
+						initEdForClearedMap()
 						initCellOutlines()
 						g_currentMapName = ""
 						g_dirtyMap = false
@@ -11605,7 +12394,7 @@ This is the initial release, so it likely has bugs. Known issues:
 		if strFind(_sel.action, "objdelete") == 0 then
 			var idx = getActionIdx("objdelete", _sel.action)
 			var obj = g_cur.lastColContext.collision
-			deleteMapObj(obj[idx].cell, obj[idx].idx)
+			edDeleteMapObj(obj[idx].cell, obj[idx].idx)
 			
 			updateCurColContext(true)
 			// Rebuild menu to reflect deletion
@@ -11648,7 +12437,7 @@ This is the initial release, so it likely has bugs. Known issues:
 		if _sel.action == "seldelete" then
 			// mapObj deletion code automatically removes the object from g_sel
 			while len(g_sel) loop
-				deleteMapObj(g_sel[0][0].cell, g_sel[0][0].idx)
+				edDeleteMapObj(g_sel[0][0].cell, g_sel[0][0].idx)
 			repeat
 			
 			updateCurColContext(true)
@@ -11690,10 +12479,12 @@ This is the initial release, so it likely has bugs. Known issues:
 			if strFind(_sel.action, "selcut") == 0 then
 				// mapObj deletion code automatically removes the object from g_sel
 				while len(g_sel) loop
-					deleteMapObj(g_sel[0][0].cell, g_sel[0][0].idx)
+					edDeleteMapObj(g_sel[0][0].cell, g_sel[0][0].idx)
 				repeat
 				
-				updateCurColContext(true)
+				updateCurContexts(true)
+			else
+				updateCurContexts(false)
 			endif
 			
 			// Rebuild menu to reflect deletions
@@ -11780,8 +12571,7 @@ This is the initial release, so it likely has bugs. Known issues:
 				g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
 			g_cur.pos = {floor(g_cur.pos.x) + curFract.x, floor(g_cur.pos.y) + curFract.y, 
 				floor(g_cur.pos.z) + curFract.z}
-			updateCurWidgets()
-			updateCurContexts()
+			updateCurContexts(false)
 			
 			if g_cur.mode == "masssel" then
 				warpMassSelPos(prevCurPos)
@@ -12353,6 +13143,7 @@ This is the initial release, so it likely has bugs. Known issues:
 			actionMenu[_sel.idxChain[len(_sel.idxChain) - 1]].text =
 				"Show cell outlines (" + getBoolStr(g_visibleCellOutlines) + ")"
 			result.menu = updateMenuChain(_sel.idxChain, _menu, actionMenu)
+			result.needWritePrefs = true
 		endif
 		
 		if _sel.action == "viewstats" then
@@ -14580,6 +15371,7 @@ return void
 
 /* Recalculates collision bits and finds current collisions. 
 _collisionMode can be 1 (bounding box), 2 (1 raycast), or 3 (5 raycasts)*/
+// CORE LOADER
 function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale, _collider, _getAllCollisions, _collisionMode, _prevPos)
 	var timer = time()
 	_lastColContext.collision = []
@@ -14633,9 +15425,12 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 		var obj
 		var objGridBit
 		var hit
+		var curAdj = getAdj(_cell, _pos)
 		
-		for h = 0 to len(g_cell[_cell][1]) loop
-			curCell = g_cell[_cell][1][h]
+		//for h = 0 to len(g_cell[_cell][1]) loop
+		//	curCell = g_cell[_cell][1][h]
+		for h = 0 to len(curAdj) loop
+			curCell = curAdj[h]
 			if curCell >= 0 and (_lastColContext.gridBit[h][0]
 					or _lastColContext.gridBit[h][1]) then
 				for i = g_cellObjStart to len(g_cell[curCell]) loop
@@ -14742,6 +15537,7 @@ return void
 /* A collision context should be flushed when there is a chance that its cached
 data is inaccurate. For example: when an object referenced in _colContext.objList 
 has been deleted. */
+// CORE LOADER
 function flushColContext(_colContext)
 	array gridBit[27][bitLenToInt(pow(getCellWidth(), 3))]
 	
@@ -14755,6 +15551,7 @@ function flushColContext(_colContext)
 return _colContext
 
 /* Finds collisions involving merged objects. */
+// CORE LOADER
 function mergedObjIntersect(_mergedObj, _obj)
 return mergedObjIntersect(_mergedObj, _obj, false)
 
@@ -14776,6 +15573,7 @@ if the caster's gridBit doesn't overlap _obj's gridBit. If _gridBit is not
 given, it will be set so it always overlaps, making it irrelevant. If
 _getAll is true, the nearest collision wil be returned; otherwise, the
 first collision encountered will be returned. */
+// CORE LOADER
 function raycastGrp(_obj, _cell, _pos, _dir)
 return raycastGrp(_obj, _cell, _pos, _dir, [])
 
@@ -14963,19 +15761,19 @@ function moveCur(_c)
 			g_cur.pos = roundVec(g_cur.pos, moveRes)
 			g_cur.activeObj.pos = g_cur.pos
 			
-			updateCurContexts()
+			updateCurContexts(false)
 		endif
 	endif
 return void
 
 /* Updates stuff that changes based on cursor state. */
-function updateCurContexts()
-	var curCellResult = updateCellContext(g_cur.cell, g_cur.cellPos, g_cur.pos, true)
+function updateCurContexts(_flushColContext)
+	var curCellResult = updateCellContext(g_cur.cell, g_cur.cellPos, g_cur.pos, false, _flushColContext)
 	g_cur.cell = curCellResult.cell
 	g_cur.cellPos = curCellResult.cellPos
 	
 	updateCurWidgets()
-	updateCurColContext(false)
+	updateCurColContext(_flushColContext)
 return void
 
 /* Projects cursor 3D position to 2D screen position. */
@@ -15301,6 +16099,8 @@ function drawObjLabels()
 			var cellIdx
 			var j
 			var obj
+			var objDef
+			var extCenter
 			var screenPos
 			var scale
 			var objName
@@ -15313,13 +16113,16 @@ function drawObjLabels()
 				if cellIdx != -1 then
 					for j = g_cellObjStart to len(g_cell[cellIdx]) loop
 						obj = g_cell[cellIdx][j]
-						printAt(0, 25, isMapObjRef(obj))
 						
 						if !isMapObjRef(obj) then
+							//objDef = g_obj[decodeBank(obj.bankIdx)][decodeidx(obj.bankIdx)]
+							//extCenter = obj.pos + getExtCenter(getExtMinMax(objDef.ext, obj.scale, obj.fwd, obj.up))
+							//screenPos = worldPosToScreenPos(extCenter, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
 							screenPos = worldPosToScreenPos(obj.pos, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
 							
 							if screenPos.x >= 0 and screenPos.x <= gwidth() 
 									and screenPos.y >= 0 and screenPos.y <= gheight() then
+								//scale = scale3dSprite(extCenter, 0.1, g_cam.fwd, g_cam.up, g_cam.pos)
 								scale = scale3dSprite(obj.pos, 0.1, g_cam.fwd, g_cam.up, g_cam.pos)
 								textSize(scale)
 								
@@ -15530,11 +16333,12 @@ function debug()
 	
 	debugPrint(999, ["getGrpCollisionBits()", timer1, "getGrpCollisionBits2()", timer2])
 	*/
-	
+	// /*
 	textSize(g_menuTextSize * 0.6)
 	ink(white)
 	printAt(15, 5, "CAM CELL: " + g_cam.cell)
 	printAt(15, 6, "CAM CELLPOS: " + vec3ToStr(g_cam.cellPos, 2))
+	//printAt(15, 7, g_cell[g_cam.cell][1])
 	//printAt(15, 7, "CURSOR CAM ADJ: ")
 	//printAt(15, 8, g_cell[g_cam.cell][1])
 	
@@ -15573,7 +16377,7 @@ function debug()
 			printAt(0, 21 + i, getMapObjName(g_cur.massSel.contents[i]))
 		repeat
 	endif
-	
+	// */
 return void
 
 /* Draws a debug line that automaticaly disappears after _dur seconds. */
@@ -15739,7 +16543,7 @@ function loadCelqiImg(_idx)
 		l,l,o,_,_,_,_,_,_,_,_,o,o,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 8
 		l,o,_,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l, // 9
 		l,o,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l, // 10
-		l,o,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,,, // 11
+		l,o,_,_,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l, // 11
 		o,_,_,_,_,_,_,_,o,_,_,o,_,_,o,_,o,o,_,_,_,o,o,_,o,_,_,_,_,_,_,o, // 12
 		o,_,_,_,_,_,_,_,o,_,o,_,_,o,_,o,_,_,_,o,_,_,_,_,_,o,_,_,_,_,_,o, // 13
 		o,_,_,_,_,_,_,_,_,o,o,o,o,o,o,_,_,o,o,_,_,_,o,o,_,_,_,_,_,_,_,o, // 14
@@ -15783,7 +16587,7 @@ function loadMergedImg()
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 8
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 9
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 10
-		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,,,,, // 11
+		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 11
 		l,l,o,_,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 12
 		l,l,o,_,o,_,o,_,o,_,o,_,o,o,o,_,o,o,o,_,_,o,o,_,o,o,o,_,_,o,l,l, // 13
 		l,l,o,_,o,_,o,_,o,o,o,_,o,_,_,_,o,_,o,_,o,_,_,_,o,_,_,_,_,o,l,l, // 14
@@ -15802,7 +16606,7 @@ function loadMergedImg()
 		l,l,o,o,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 27
 		l,l,l,l,o,_,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 28
 		l,l,l,l,o,o,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 29
-		l,lll,l,l,l,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 30
+		l,l,l,l,l,l,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o,l,l, // 30
 		l,l,l,l,l,l,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,l,l // 31
 	]
 	
