@@ -1,25 +1,16 @@
 /* THIS UPDATE:
-Save cells to increase load speed
-Begin refactoring to support core loader
 
-TODO: 
-
-* deleting multiple selected objects can still throw an index oob error 
-cell outlines
-	* warping cursor by selecting from obj origin needs to update outline position
-	* cursor cell outline needs to accommodate not creating cells via cusor movement
-* object deletion needs to also delete cells if necessary
-* Light icons don't load properly if they're near cell 0 and camera loads into distant cell
-* Light icons stop updating after deleting some objects (e.g. delete all but light in Castle Test)
-* Need a new check to prevent duplicate objects
-
+* deleting objs under cursor can still cause oob errors in colliders
+loading map doesn't delete old map's cell outline
+too much loading sprites from code with repeated map loads
+* deleting obj needs to update possible multicell deletions in col contexts (maybe just flush contexts?)
 
 active is now pointless -- just replace it with mapObj
 
 The general rule here is to avoid copying large chunks of data into
 local execution contexts in order to optimize RAM use. This means that
 some global data structures such as g_obj and g_grid may be directly referenced 
-by functions even though it would likely be considered best practice to 
+by functions even though it would likely be considered bestpractice to 
 pass them as arguments in a less resource-restricted environment. 
 
 Naming conventions for variables: Arguments are preceded by "_" and global
@@ -34,7 +25,7 @@ in the editor's object menu. If you delete or rename a model that is in
 use in a map or merged object, the editor will prompt you to relink the 
 deleted definition to an existing definition. 
 
-Merged object definitions, which combine an abitrary number of objects into a
+Merged object definitions, which combine an arbitrary number of objects into a
 single object, exist only in the saved file and must be created in the editor 
 rather then being defined here.
 
@@ -150,8 +141,7 @@ function getModels()
 			["", "Fertile Soil Productions/Cliff_Mid_Corner_Outer_Sm"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Inner_Lg"],
 			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Lg"],
-			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Sm"]//,
-			//["", "Devils Garage/treeWide01"]			
+			["", "Fertile Soil Productions/Cliff_Top_Corner_Outer_Sm"]
 		]
 		// Add additional banks as desired
 	]
@@ -328,13 +318,30 @@ return themeDef
 // System setup
 var g_editor = true // Are we in the editor? false = game/core loader, true = editor
 var g_version = "1.0.00"
-var g_freezeFile = false // Setting to true will block file closure and freeze the save file in its current state
+var g_freezeFile = true // Setting to true will block file closure and freeze the save file in its current state
 var g_breakpoint = true // Enable or disable debug breakpoints
 var g_frame = 0 // Current frame number
 var g_copyLimit = 32 // Max number of objects that can exist in the copy bank before old ones start getting removed
 var g_pauseRequest = 0 // Set this to request sleep() after the frame is drawn
 var g_lightBank = 1 // Bank number for lights
 var g_intLen = 64 // Number of bits to use for binary variables. FUZE technically has 64-bit signed ints, but it's complicated
+
+/* Default theme and background in case Ninety-Five has been deleted from the
+getThemeDefs() function by the user. Superceded by loaded file data if present. */
+var g_theme = [
+	.name = "Ninety-Five",
+	.bgCol = platinum,
+	.textCol = black,
+	.bgSelCol = blue,
+	.textSelCol = platinum,
+	.inactiveCol = lightGrey
+]
+
+var g_bg = [
+	.idx = 6,
+	.col = {0.2, 0.2, 0.2, 1}
+]
+setEnvironment(g_bg.idx, g_bg.col)
 
 // Sprites
 var g_imgCur = loadImage("Kenney/gameIcons", 0)
@@ -343,24 +350,55 @@ var g_imgPointShadowLight = loadPointShadowLightImg()
 var g_imgSpotLight = loadSpotLightImg()
 var g_imgWorldLight = loadWorldLightImg()
 var g_imgWorldShadowLight = loadWorldShadowLightImg()
-var g_imgMerged = loadMergedImg()
+var g_imgMerged = initMergedImg()
 
 var g_logo = [
 	.frame = 0,
 	.frameTime = time(),
-	.spr = createSprite(),
-	.sprExists = true,
-	.textSpr = createSprite(),
-	.textSprExists = true,
-	.img = [
-		loadCelqiImg(0),
-		loadCelqiImg(1)
-	],
-	.textImg = loadLogoTextImg()
+	.spr = -1,
+	.sprExists = false,
+	.textSpr = -1,
+	.textSprExists = false,
+	.img = -1,
+	.textImg = -1
 ]
-setSpriteImage(g_logo.spr, g_logo.img[0])
-setSpriteImage(g_logo.textSpr, g_logo.textImg)
+initLogoSpr()
+initLogoTextSpr()
 setSpriteCamera(gwidth() / 2, gheight() / 2)
+
+function initMergedImg()
+	var sprCol = getSprThemeCol()
+	g_imgMerged = loadMergedImg(sprCol.fill, sprCol.outline)
+return void
+
+/* Sets default values for the load/splash logo sprite. */
+function initLogoSpr()
+	if !g_logo.sprExists then
+		g_logo.spr = createSprite()
+	endif
+	
+	var sprCol = getSprThemeCol()
+	g_logo.img = [
+		loadCelqiImg(0, sprCol.fill, sprCol.outline),
+		loadCelqiImg(1, sprCol.fill, sprCol.outline)
+	]
+	setSpriteImage(g_logo.spr, g_logo.img[g_logo.frame])
+	setSpriteScale(g_logo.spr, {4, 4, 4})
+	g_logo.sprExists = true
+return void
+
+/* Sets default values for the splash text sprite. */
+function initLogoTextSpr()
+	if !g_logo.textSprExists then
+		g_logo.textSpr = createSprite()
+	endif
+	
+	var sprCol = getSprThemeCol()
+	g_logo.textImg = loadLogoTextImg(sprCol.fill, sprCol.outline)
+	setSpriteImage(g_logo.textSpr, g_logo.textImg)
+	setSpriteScale(g_logo.textSpr, {4, 4, 4})
+	g_logo.textSprExists = true
+return void
 
 /* Stores cells on the horizon of icon visibility so we know when to 
 show and hide the spites. */
@@ -388,23 +426,6 @@ function initScreenRes()
 	g_statusTextH = gheight() / 36
 	g_statusBarH = g_statusTextH * 3
 return void
-
-/* Default theme and background in case Ninety-Five has been deleted from the
-getThemeDefs() function by the user. Superceded by loaded file data if present. */
-var g_theme = [
-	.name = "Ninety-Five",
-	.bgCol = platinum,
-	.textCol = black,
-	.bgSelCol = blue,
-	.textSelCol = platinum,
-	.inactiveCol = lightGrey
-]
-
-var g_bg = [
-	.idx = 6,
-	.col = {0.2, 0.2, 0.2, 1}
-]
-setEnvironment(g_bg.idx, g_bg.col)
 
 /* A cell is the basic unit of space in a map. Cells are dynamically added as objects
 are placed and store references to the objects they contain and to all other adacent 
@@ -434,7 +455,6 @@ function initCell()
 	for i = 0 to len(g_cellOutline) loop
 		g_cellOutline[i] = outlineEntry
 	repeat
-	//addCell({2.5, 2.5, 2.5})
 return void
 
 /* List of selected objects. Contains entries in the form of
@@ -449,6 +469,7 @@ function initSel()
 return void
 
 // Camera
+colContext g_newColCon
 var g_cam = [
 	.movSpd = 5,
 	.rotSpd = 125,
@@ -464,6 +485,7 @@ var g_cam = [
 	.cellPos = {2.5, 2.5, 2.5},
 	.drawObjLabels = false,
 	.collisionMode = 0,
+	/*
 	.lastColContext = [ // Data about object collisions
 		.cell = -1,
 		.gridBit = [],
@@ -471,11 +493,17 @@ var g_cam = [
 		.collision = [],
 		.allCollisions = true
 	],
-	.collider = placeObject(cube, {0, 1, 1}, {0.1, 0.1, 0.1}),
-	.ext = [ .lo = {-0.05, -0.05, -0.05}, .hi = {0.05, 0.05, 0.05} ] // Needs to match .collider's dimensions
+	*/
+	.lastColContext = g_newColCon,
+	.collider = placeObject(cube, {0, 1, 1}, {0.3, 0.3, 0.3}),
+	.ext = [ .lo = {-1, -1, -1}, .hi = {1, 1, 1} ] // Needs to match .collider's dimensions
 ]
 setObjectVisibility(g_cam.collider, false)
 setFov(g_cam.fov)
+//g_cam.lastColContext = initColContext(g_cam.lastColContext, g_cam.collider, 
+//	g_cam.pos, g_cam.fwd, g_cam.up, {0.2, 0.2, 0.2}, 3)
+initCam()
+/*
 g_cam.lastColContext.gridBit = getExtCollisionBitsFast(
 	g_cam.pos,
 	g_cam.ext, 
@@ -483,6 +511,7 @@ g_cam.lastColContext.gridBit = getExtCollisionBitsFast(
 	g_cam.fwd, 
 	g_cam.up
 )
+*/
 
 /* Resets camera to default values. */
 function initCam()
@@ -494,6 +523,7 @@ function initCam()
 	g_cam.delta = {0, 0, 0}
 	g_cam.cell = -1
 	g_cam.cellPos = getCellPosFromPos(g_cam.pos)
+	/*
 	g_cam.lastColContext = [
 		.cell = -1,
 		.gridBit = [],
@@ -508,6 +538,9 @@ function initCam()
 		g_cam.fwd, 
 		g_cam.up
 	)
+	*/
+	g_cam.lastColContext = initColContext(g_cam.lastColContext, g_cam.collider, 
+		g_cam.pos, g_cam.fwd, g_cam.up, {0.3, 0.3, 0.3}, 3)
 return void
 
 // Cursor
@@ -539,21 +572,24 @@ var g_cur = [
 	.massSel = -1, // Data about mass selecion state
 	.cell = -1, // Cell that the cursor is currently in
 	.cellPos = {2.5, 2.5, 2.5},
-	.lastColContext = [ // Data about object collisions
+	.lastColContext = g_newColCon, // Data about object collisions
+	/*
 		.cell = -1,
 		.gridBit = [],
 		.objList = [],
 		.collision = [],
 		.allCollisions = true
 	],
+	*/
 	.collider = placeObject(cube, {0, 0, 0}, {0.5, 0.5, 0.5}),
-	.ext = [ .lo = {-0.5, -0.5, -0.5}, .hi = {0.5, 0.5, 0.5} ] // Needs to match .collider's dimensions
+	.ext = [ .lo = {-1, -1, -1}, .hi = {1, 1, 1} ] // Needs to match .collider's dimensions
 ]
 setObjectVisibility(g_cur.collider, false)
 initCurObj()
 initCur()
 setSpriteImage(g_cur.spr, g_imgCur, 374)
 setSpriteColor(g_cur.spr, {g_theme.bgSelCol.r, g_theme.bgSelCol.g, g_theme.bgSelCol.b, g_sprAlpha})
+/*
 g_cur.lastColContext.gridBit = getExtCollisionBitsFast(
 	floorVec(g_cur.pos) + 0.5,
 	g_cur.ext, 
@@ -561,6 +597,7 @@ g_cur.lastColContext.gridBit = getExtCollisionBitsFast(
 	{0, 0, 1}, 
 	{0, 1, 0}
 )
+*/
 
 /* Instantiates the compound wireframe object that outlines the current grid space. */
 function initCurObj()
@@ -588,6 +625,7 @@ function initCur()
 	g_cur.up = {0, 1, 0}
 	g_cur.cell = -1
 	g_cur.cellPos = getCellPosFromPos(g_cur.pos)
+	/*
 	g_cur.lastColContext = [
 		.cell = -1,
 		.gridBit = [],
@@ -595,13 +633,20 @@ function initCur()
 		.collision = [],
 		.allCollisions = true
 	]
-	g_cur.lastColContext.gridBit = getExtCollisionBitsFast(
+	*/
+	/* g_cur.collider is a group member, and the relative pos offset interferes with finding 
+	its ext in initColContext(), so temporarily zero the group pos first. */
+	setObjectPos(g_cur.objGrp, {0, 0, 0})
+	g_cur.lastColContext = initColContext(g_cur.lastColContext, g_cur.collider, 
+		{0, 0, 0}, g_cur.fwd, g_cur.up, {0.5, 0.5, 0.5}, 1)
+	setObjectPos(g_cur.objGrp, floorVec(g_cur.pos) + 0.5)
+	/*g_cur.lastColContext.gridBit = getExtCollisionBitsFast(
 		floorVec(g_cur.pos) + 0.5,
 		g_cur.ext, 
 		{1, 1, 1}, 
 		{0, 0, 1}, 
 		{0, 1, 0}
-	)
+	)*/
 return void
 
 // World state
@@ -738,16 +783,13 @@ repeat
 // ----------------------------------------------------------------
 // LOAD OBJECT DEFINITIONS AND MAP
 
-//debugPrint(0, [encodeIntVec({1, 0, 1})])
-
-showSplash(4) // Change argument to 0 to disable splash screen
-
 var g_mapFile = open() // Subsequent opens must use openFile() rather than open() to respect g_freezeFile's state
 //clearFile(g_mapFile) // Uncomment to fully erase saved data on startup
-debugFile(g_mapFile) // Uncomment to view file before launching the editor
+//debugFile(g_mapFile) // Uncomment to view file before launching the editor
 
 readEdPrefs(g_mapFile)
-array g_menu[0] // Create menu because map load needs to see it
+
+showSplash(4) // Change argument to 0 to disable splash screen
 
 // Arrange model data in a code-readable format
 var g_loadResult = loadObjDefs(g_mapFile)
@@ -774,7 +816,8 @@ if len(g_mapNames) then
 		clearMap()
 		initEdForClearedMap()
 		g_currentMapName = queuedMap
-		initEdForLoadedMap(readObjMap(g_mapFile, g_currentMapName))
+		var mapResult = readObjMap(g_mapFile, g_currentMapName)
+		initEdForLoadedMap(mapResult)
 	endif
 endif
 
@@ -784,26 +827,7 @@ g_loadResult = -1// Free memory
 g_missingRefs = -1 // Free memory
 closeFile(g_mapFile)
 
-/*
-var i
-var j
-var k
-for i = 0 to len(g_cell) loop
-	for j = g_cellObjStart to len(g_cell[i]) loop
-		if !isMapObjRef(g_cell[i][j]) then
-			var cache = []
-			for k = 0 to len(g_cell[i][j].gridBitList) loop
-				if contains(cache, g_cell[i][j].gridBitList[k][0]) then
-					debugPrint(0, ["repeat found", getMapObjName(g_cell[i][j]),
-						g_cell[i][j].pos, "cell " + g_cell[i][j].gridBitList[k][0]])
-				endif
-				
-				cache = push(cache, g_cell[i][j].gridBitList[k][0])
-			repeat
-		endif
-	repeat
-repeat
-*/
+array g_menu[0]
 
 // ----------------------------------------------------------------
 // MENU ARRAYS
@@ -2016,8 +2040,13 @@ g_menu = [
 // ----------------------------------------------------------------
 // MAIN EXECUTION LOOP
 
+var g_cube = placeObject(cube, {13, 4.75, 9}, {0.5, 0.5, 0.5})
+colContext g_cubeColCon
+g_cubeColCon = initColContext(g_cubeColCon, g_cube, {13, 4.75, 9}, 
+	{0, 0, 1}, {0, 1, 0}, {0.5, 0.5, 0.5}, 3)
+
 loop
-	clear()
+	//clear()
 	updateBlink()
 	g_kb = getKeyboardBuffer()
 	drawObjects()
@@ -2037,6 +2066,11 @@ loop
 		updateUnderCurObj()
 		updateSelObj()
 	endif
+	
+	var cubeMov = {0, 0, -0.01}
+	var newCubePos = g_cubeColCon.objPos + cubeMov
+	//g_cubeColCon = updateObjCollisions(g_cube, g_cubeColCon, newCubePos, {0, 0, 1}, {0, 1, 0}, 
+	//	{0.5, 0.5, 0.5}, 3, false, false, true)
 	
 	update()
 	g_frame += 1
@@ -2058,6 +2092,31 @@ repeat
 
 // ----------------------------------------------------------------
 // STRUCTS
+
+/* Stores information about an object's collision state. */
+struct colContext
+	int cell = -1
+	vector cellPos = {float_max, float_max, float_max}
+	vector objPos = {float_max, float_max, float_max}
+	vector colPos = {float_max, float_max, float_max}
+	vector scale = {1, 1, 1}
+	vector colScale = {float_max, float_max, float_max}
+	vector fwd = {0, 0, 1}
+	vector colFwd = {float_max, float_max, float_max}
+	vector up = {0, 1, 0}
+	vector colUp = {float_max, float_max, float_max}
+	extent ext = [ .lo = {0, 0, 0}, .hi = {0, 0, 0} ]
+	vector dir
+	vector delta
+	array gridBit[0]
+	array objList[0]
+	array collision[0]
+	array colDepth[0]
+	array normal[0]
+	int colThisFrame = false
+	int allCollisions = true
+	int collisionMode = 3
+endstruct
 
 /* Stores info about objects placed in the map. Distinct from active, which is
 a reduced dataset, and objDef, which is the basic info need to instantiate an
@@ -2359,7 +2418,6 @@ to a new index when closed. This allows us to write data of an arbitrary size in
 middle of a file without worrying about overwriting what comes after it (if larger
 than the original data) or leaving garbage data (if smaller than the original data). */
 function openFileEndBuffer(_file, _idx)
-	//var unalloIdx = findFileChar(_file, chr(127), _idx)
 	var unalloIdx = getEofIdx(_file)
 	
 	seek(_file, _idx)
@@ -2417,7 +2475,7 @@ function writeObjMap(_file, _mapName, _needFileOpen)
 	var mapEnc = encodeObjMap(_file, _mapName, versionStr())
 	var mapProps = encodeMapProperties(_file, _mapName, versionStr())
 	var writeStr = mapCells.enc + mapEnc.enc + mapProps.enc
-	writeFileSegment(_file, writeStr, mapEnc.writeStart, mapProps.writeEnd)
+	writeFileSegment(_file, writeStr, mapCells.writeStart, mapProps.writeEnd)
 	
 	closeFileIfNeeded(_file, _needFileOpen)
 	removeLoadSpr()
@@ -2685,9 +2743,11 @@ function unmergeObjInMaps(_file, _name, _oldDef, _excludeMaps, _needFileOpen)
 					obj = applyGrpTransform(obj, groupObj[j], true)
 					
 					// Arrange by object name
-					var nameIdx = find(objName[0], getMapObjName(obj))
+					var mapObjName
+					getMapObjName(mapObjName, obj)
+					var nameIdx = find(objName[0], mapObjName)
 					if nameIdx < 0 then
-						objName[0] = push(objName[0], getMapObjName(obj))
+						objName[0] = push(objName[0], mapObjName)
 						objName[1] = push(objName[1], [])
 						nameIdx = len(objName[0]) - 1
 					endif
@@ -2735,34 +2795,45 @@ function replaceObjInMaps(_file, _name, _template, _changed, _unmerge, _excludeM
 	var k
 	var enc
 	
+	i = 0
+	while i < len(mapNames) loop // Remove exclusions instead of using if check in next loop to save stack space
+		if contains(_excludeMaps, mapNames[i]) then
+			mapNames = remove(mapNames, i)
+			i -= 1
+		endif
+		
+		i += 1
+	repeat
+	
 	for i = 0 to len(mapNames) loop
-		if !contains(_excludeMaps, mapNames[i]) then
-			for j = 0 to len(_changed) loop
-				showLoadBox("Replacing '" + _name + "':" + chr(10) + "Reading object '"
-					+ _changed[j].name + "' in '" + mapNames[i] + "'", true, false, false)
-					
-				genObj = bufferAndDeleteMapObjInFile(_file, mapNames[i], _changed[j].name)
+		for j = 0 to len(_changed) loop
+			showLoadBox("Replacing '" + _name + "':" + chr(10) + "Reading object '"
+				+ _changed[j].name + "' in '" + mapNames[i] + "'", true, false, false)
 				
-				if len(genObj) then
+			genObj = bufferAndDeleteMapObjInFile(_file, mapNames[i], _changed[j].name)
+			
+			//if len(genObj) then
+			//	showLoadBox("Replacing '" + _name + "':" + chr(10) + "Modifying object '"
+			//		+ _changed[j].name + "' in '" + mapNames[i] + "'", true, false, false)
+					
+				if len(genObj) and _unmerge and len(_template.children) and _name == _changed[j].name then
 					showLoadBox("Replacing '" + _name + "':" + chr(10) + "Modifying object '"
 						+ _changed[j].name + "' in '" + mapNames[i] + "'", true, false, false)
+					unmerged = unmergeObj(_template)
+					
+					for k = 0 to len(unmerged) loop
+						unmerged[k] = applyGrpPos(unmerged[k], _template, false)
 						
-					if _unmerge and len(_template.children) and _name == _changed[j].name then
-						unmerged = unmergeObj(_template)
-						
-						for k = 0 to len(unmerged) loop
-							unmerged[k] = applyGrpPos(unmerged[k], _template, false)
-							
-							enc = encodeReplacementObject(_name, unmerged[k], genObj, true, true)
-							writeIntoMapObjBlock(_file, mapNames[i], enc, _changed[j].name)
-						repeat
-					else
-						enc = encodeReplacementObject(_name, _template, genObj)
+						encodeReplacementObject(enc, _name, unmerged[k], genObj, true, true)
 						writeIntoMapObjBlock(_file, mapNames[i], enc, _changed[j].name)
-					endif
-				endif
-			repeat
-		endif
+					repeat
+				else if len(genObj) then
+					//enc = encodeReplacementObject(_name, _template, genObj)
+					encodeReplacementObject(enc, _name, _template, genObj, true, false)
+					writeIntoMapObjBlock(_file, mapNames[i], enc, _changed[j].name)
+				endif endif
+			//endif
+		repeat
 	repeat
 	
 	closeFileIfNeeded(_file, _needFileOpen)	
@@ -2773,13 +2844,13 @@ return void
 encoded replacement write string for any object entry that references the 
 modified object. */
 function encodeReplacementObject(_name, _genObj)
-return encodeReplacementObject(_name, -1, _genObj, false, false)
+return encodeReplacementObject(-1, _name, -1, _genObj, false, false)
 
 function encodeReplacementObject(_name, _template, _genObj)
-return encodeReplacementObject(_name, _template, _genObj, true, false)
+return encodeReplacementObject(-1, _name, _template, _genObj, true, false)
 
-function encodeReplacementObject(_name, _template, _genObj, _useTemplate, _useTemplateTransform)
-	var enc = ""
+function encodeReplacementObject(ref _in, _name, _template, _genObj, _useTemplate, _useTemplateTransform)
+	_in = ""
 	var k
 	var bankIdx
 	var newObj
@@ -2796,7 +2867,7 @@ function encodeReplacementObject(_name, _template, _genObj, _useTemplate, _useTe
 			to allow deleting core object defs from the object menu, we'll need to
 			check child/light array length. */
 			buildResult = buildObjMapMergedLight(newObj, _genObj[k].lights)
-			newObj = cloneObjLightDataRecursive(buildResult.obj, newObj, false)
+			cloneObjLightDataRecursive(buildResult.obj, newObj, false)
 		else if _useTemplate then
 			newObj = _template
 		endif endif
@@ -2818,7 +2889,7 @@ function encodeReplacementObject(_name, _template, _genObj, _useTemplate, _useTe
 				newObj.bankIdx = _template.bankIdx
 			endif
 		endif endif
-		
+		/*
 		if _useTemplate or (_genObj[k].obj.name != _name and bankIdx.bank >= 0) then
 			if _useTemplate then
 				newObj = cloneObjLightDataRecursive(_template, newObj, false)
@@ -2827,8 +2898,19 @@ function encodeReplacementObject(_name, _template, _genObj, _useTemplate, _useTe
 			enc += encodeObjMapUnit(newObj)
 			enc += encodeObjLights(newObj, true)
 		endif
+		*/
+		if _useTemplate then
+			cloneObjLightDataRecursive(_template, newObj, false)
+			_in += encodeObjMapUnit(newObj)
+			_in += encodeObjLights(newObj, true)
+		endif
+		
+		if !_useTemplate and _genObj[k].obj.name != _name and bankIdx.bank >= 0 then
+			_in += encodeObjMapUnit(newObj)
+			_in += encodeObjLights(newObj, true)
+		endif
 	repeat
-return enc
+return _in
 
 /* Completely removes an object from all maps without replacing it. */
 function removeObjInMaps(_name, _changed)
@@ -2862,7 +2944,10 @@ function removeObjInMaps(_file, _name, _changed, _excludeMaps, _needFileOpen)
 					showLoadBox("Deleting '" + _name + "':" + chr(10) + "Modifying object '"
 						+ _changed[j].name + "' in '" + mapNames[i] + "'", true, false, false)
 					
-					enc += encodeReplacementObject(_name, genObj)
+					//enc += encodeReplacementObject(_name, genObj)
+					var addEnc
+					encodeReplacementObject(addEnc, _name, -1, _genObj, false, false)
+					enc += addEnc
 					writeIntoMapObjBlock(_file, mapNames[i], enc, _changed[j].name)
 				endif
 			repeat
@@ -2983,6 +3068,7 @@ function buildObjMapMergedLight(_obj, _lightList)
 return result
 
 /* Constucts saved cell layout. */
+// +CORE LOADER
 function readCellMap(_file, _mapName)
 	var sectionIdx = findFileSection(_file, "cellMap" + _mapName)
 	
@@ -3017,8 +3103,14 @@ return void
 element that is currently loading. */
 // +CORE LOADER
 function loadMapMsg(_mapName, _objName, _objPos)
-	showLoadBox("Loading '" + _mapName + "':" + chr(10) + "Placing '" + _objName + "'" + chr(10) 
-		+ vec3ToStr(_objPos, 2), true, false, false)
+	var loadStr = "Loading '" + _mapName + "':" + chr(10)
+	if len(_objName) then
+		loadStr +=  "Placing '" + _objName + "'" + chr(10) + vec3ToStr(_objPos, 2)
+	else
+		loadStr += "Creating cells"
+	endif
+	
+	showLoadBox(loadStr, true, false, false)
 return void
 
 /* Restores a map from file. */
@@ -3032,19 +3124,20 @@ function readObjMap(_file, _mapName)
 		from the obj def instead. */
 		if len(_queuedLight[0].lights) == 0 then
 			_queued[0].obj.lights = 
-				g_obj[decodeBank(_queued[0].obj.bankIdx)][decodeIdx(_queued[0].obj.bankIdx)].lights
+				g_obj[decodeBank(-1, _queued[0].obj.bankIdx)][decodeIdx(-1, _queued[0].obj.bankIdx)].lights
 		endif
 		
 		var isGrp = false
+		
 		if (len(_queued[0].obj.children) or len(_queued[0].obj.lights)) and _queued[0].isMerged then
 			isGrp = true
 		endif
 		
 		_queued[0].obj = buildObjMapMergedLight(_queued[0].obj, _queuedLight[0].lights).obj
-		
 		placeObjFromTemplate(_queued[0].obj, isGrp)
-		
-		loadMapMsg(_mapName, getMapObjName(_queued[0].obj), _queued[0].obj.pos)
+		var mapObjName
+		getMapObjName(mapObjName, _queued[0].obj)
+		loadMapMsg(_mapName, mapObjName, _queued[0].obj.pos)
 		
 		_queued = remove(_queued, 0)
 		_queuedLight = remove(_queuedLight, 0)
@@ -3059,8 +3152,7 @@ function readObjMap(_file, _mapName)
 	var objTimer = 0
 	var placementTimer = 0
 	
-	clear(g_theme.bgCol)
-	
+	loadMapMsg(_mapName, "", 0)
 	readCellMap(_file, _mapName)
 	
 	var redefHappened = false
@@ -3084,7 +3176,12 @@ function readObjMap(_file, _mapName)
 	var newObj
 	var idxOffsetFromSection
 	var nextIdxOffsetFromSection
-	var redefResult
+	var redefResult = [
+		.bank = -1,
+		.idx = -1,
+		.name = "",
+		.isMerged = true
+	]
 	var addResult
 	var lastIdx
 		
@@ -3103,6 +3200,7 @@ function readObjMap(_file, _mapName)
 		isRedef = false
 		isDelDef = false
 		var gridBitList
+		var mapObjName
 		
 		while inFileBlock(chunk) loop
 			chunk = getNextFileChunk(_file, chunk.nextIdx) // Unit
@@ -3116,6 +3214,7 @@ function readObjMap(_file, _mapName)
 				// If there's not a brightness value, this isn't a light object
 				if genObj.brightness == -1 then
 					newObj = createActiveFromGenericObj(genObj)
+					
 					if genObj.name != currentDef.name then
 						defResult = getObjDefBankIdx(genObj.name)
 						
@@ -3123,12 +3222,14 @@ function readObjMap(_file, _mapName)
 							currentDef.name = genObj.name
 							currentDef.bank = defResult.bank
 							currentDef.idx = defResult.idx
-						else
+						endif
+						
+						if defResult.bank < 0 and g_editor then
 							idxOffsetFromSection = chunk.idx - sectionIdx.start
 							nextIdxOffsetFromSection = chunk.nextIdx - sectionIdx.start
 							
 							if !isRedef then
-								redefResult = promptObjDefRelink(genObj.name, 1) // Function not present in core loader
+								edFunction(redefResult, "promptObjDefRelink", [ genObj.name, 1 ])
 								
 								/* The redef changed the file length, so refind our index 
 								in the map section. */
@@ -3140,9 +3241,10 @@ function readObjMap(_file, _mapName)
 							if redefResult.bank >= 0 then
 								newObj = activeFromObjDef(redefResult.bank, redefResult.idx)
 								
-								currentDef.name = getMapObjName(newObj)
-								currentDef.bank = decodeBank(newObj.bankIdx)
-								currentDef.idx = decodeIdx(newObj.bankIdx)
+								getMapObjName(mapObjName, newObj)
+								currentDef.name = mapObjName
+								currentDef.bank = decodeBank(-1, newObj.bankIdx)
+								currentDef.idx = decodeIdx(-1, newObj.bankIdx)
 								isMerged = redefResult.isMerged
 								isRedef = true
 							else
@@ -3150,7 +3252,9 @@ function readObjMap(_file, _mapName)
 							endif
 							
 							redefHappened = true
-						endif
+						else if defResult.bank < 0 and !g_editor then // g_editor != 1: If an object def can't be found and we're in the Core Loader, ignore the def
+							isDelDef = true
+						endif endif
 					endif
 					
 					if !isDelDef then
@@ -3160,7 +3264,7 @@ function readObjMap(_file, _mapName)
 						newObj.fwd = genObj.fwd
 						newObj.up = genObj.up
 						
-						if decodeBank(newObj.bankIdx) >= 0 and decodeIdx(newObj.bankIdx) >= 0 then
+						if decodeBank(-1, newObj.bankIdx) >= 0 and decodeIdx(-1, newObj.bankIdx) >= 0 then
 							if len(queuedObj) then
 								placementTimer = time()
 								addResult = readObjMap_addQueued(queuedObj, queuedLight, _mapName)
@@ -3196,9 +3300,12 @@ function readObjMap(_file, _mapName)
 	var props = readMapProperties(_file, _mapName)
 	setEnvironment(props.bg.idx, props.bg.col)
 	
+	// Uncomment for load time stats
+	/*
 	debugPrint(0, ["Map read time: " + str(time() - loadTimer - objTimer),
 		"Object placement time: " + str(objTimer),
 		"Total load time: " + str(time() - loadTimer)])
+	*/
 	result = [
 		.redefHappened = redefHappened,
 		.props = props
@@ -3211,12 +3318,14 @@ function resolveMapLoadAction()
 	
 	if queuedMap != "" then
 		update()
+		showLoadBox("Clearing current map ...", true, false, false)
 		clearMap()
 		initEdForClearedMap()
 		var mapFile = openFile()
 		
 		g_currentMapName = queuedMap
-		initEdForLoadedMap(readObjMap(mapFile, g_currentMapName))
+		var mapResult = readObjMap(mapFile, g_currentMapName)
+		initEdForLoadedMap(mapResult)
 		
 		var menuIdx = findMenuEntry(g_menu, "Background")
 		g_menu[menuIdx].submenu = addBackgroundsToMenu(g_bg.idx)
@@ -3252,9 +3361,10 @@ function initEdForLoadedMap(_mapLoadResult)
 	g_cam.cellPos = getCellPosFromPos(g_cam.pos)
 	g_cur.cell = getCellIdxFromPos(g_cur.pos)
 	g_cur.cellPos = getCellPosFromPos(g_cur.pos)
-	updateCurWidgets()
 	updateViewport()
 	pruneLightIcons()
+	
+	updateCurContexts(true)
 return void
 
 /* Map properties are saved separately from map objects. */
@@ -3262,15 +3372,15 @@ return void
 function readMapProperties(_file, _mapName)
 	var propStruct = [
 		.bg = [
-			.col = g_bg.col,
-			.idx = g_bg.idx
+			.col = {0.2, 0.2, 0.2},
+			.idx = 6
 		],
 		.cam = [
-			.pos = g_cam.pos,
-			.fwd = g_cam.fwd,
-			.up = g_cam.up
+			.pos = {0, 0, 0},
+			.fwd = {0, 0, 1},
+			.up = {0, 1, 0}
 		],
-		.cur = [ .pos = g_cur.pos ]
+		.cur = [ .pos = {0, 0, 0} ]
 	]
 	
 	var sectionIdx = findFileSection(_file, "mapProperties" + _mapName)
@@ -3467,6 +3577,7 @@ function findFileChar(_file, _char, _startAt)
 return idx
 
 /* Returns an array of the map names in the file. */
+// +CORE LOADER
 function getMapNames(_file)
 	array names[0]
 	var fileResult = [
@@ -3710,7 +3821,7 @@ function loadObjDef(_file, _modelDat)
 	def.file = _modelDat[1]
 	def.obj = loadModel(_modelDat[1])
 	var objExt = placeObject(def.obj, {0, 0, 0}, {1, 1, 1})
-	def.ext = getObjExtent(objExt, {0, 0, 0})
+	def.ext = getObjExtent(objExt, {0, 0, 0}, {1, 1, 1}, {0, 0, 1}, {0, 1, 0})
 	removeObject(objExt)
 return def
 
@@ -3797,8 +3908,6 @@ function loadMergedObjDefs(_file)
 			endif
 		repeat
 	repeat
-	
-	//removeLoadSpr()
 return missingRefs
 
 /* Loads a merged object's top-level container data. */
@@ -3959,34 +4068,35 @@ function encodeElem(_dat)
 	var enc
 	
 	loop if type == "vector" then
+		var elem0 = str(_dat[0])
+		strRemoveTrailingZeroes(elem0)
+		var elem1 = str(_dat[1])
+		strRemoveTrailingZeroes(elem1)
+		var elem2 = str(_dat[2])
+		strRemoveTrailingZeroes(elem2)
 		enc = [
 			"3",
-			strRemoveTrailingZeroes(str(_dat[0])),
-			strRemoveTrailingZeroes(str(_dat[1])),
-			strRemoveTrailingZeroes(str(_dat[2]))
+			elem0,
+			elem1,
+			elem2
 		]
 		break endif
 	if type == "float" then
+		var elem = str(_dat)
+		strRemoveTrailingZeroes(elem)
 		enc = [
 			"f",
-			strRemoveTrailingZeroes(str(_dat))
+			elem
 		]
 		break endif
 	if type == "array" then
-		enc = [ "i3" ]
+		enc = [ "ia" ]
 		
 		var i
 		for i = 0 to len(_dat) loop
 			enc = push(enc, str(_dat[i]))
 		repeat
-		/*
-		enc = [
-			"i3",
-			str(_dat[0]),
-			str(_dat[1]),
-			str(_dat[2])
-		]
-		*/
+		
 		break
 	else
 		var typeCode
@@ -4050,8 +4160,8 @@ function encodeObjMap(_file, _mapName, _ver)
 	
 	for i = 0 to len(g_cell) loop
 		for j = g_cellObjStart to len(g_cell[i]) loop
-			if !isMapObjRef(g_cell[i][j]) then
-				objName = getMapObjName(g_cell[i][j])
+			if !isMapObjRef(-1, g_cell[i][j]) then
+				getMapObjName(objName, g_cell[i][j])
 				nameIdx = find(name, objName)
 				if nameIdx < 0 then
 					name = push(name, objName)
@@ -4084,7 +4194,7 @@ function encodeObjMapUnit(_obj)
 	// Avoid lengthy string concat in a single line because it can cause stack overflow
 	var writeStr = unitStr("")
 	writeStr += fieldStr(".name")
-	writeStr += elemStr(getMapObjName(_obj))
+	writeStr += elemStr(getMapObjName(-1, _obj))
 	writeStr += fieldStr(".pos")
 	writeStr += elemStr(_obj.pos)
 	writeStr += fieldStr(".fwd")
@@ -4124,7 +4234,7 @@ function encodeObjLights(_obj, _encChildLights, _writeStr)
 	
 	if _encChildLights then
 		for i = 0 to len(_obj.children) loop
-			if decodeBank(_obj.children[i].bankIdx) >= 0 then
+			if decodeBank(-1, _obj.children[i].bankIdx) >= 0 then
 				_writeStr = encodeObjLights(_obj.children[i], _encChildLights, _writeStr)
 			endif
 		repeat
@@ -4234,7 +4344,7 @@ function decodeElem(_e)
 			dec[i] = float(_e[i + 1])
 		repeat
 		break endif
-	if _e[0] == "i3" then
+	if _e[0] == "ia" then
 		array newDec[len(_e) - 1]
 		dec = newDec
 		
@@ -4306,10 +4416,10 @@ function fillGenericObj(_genObj, _field, _elem)
 		_genObj.bankIdx = _elem
 		break endif
 	if _field == ".idx" then
-		_genObj.bankIdx = encodeBankIdx(decodeBank(_genObj.bankIdx), _elem)
+		_genObj.bankIdx = encodeBankIdx(decodeBank(-1, _genObj.bankIdx), _elem)
 		break endif
 	if _field == ".bank" then
-		_genObj.bankIdx = encodeBankIdx(_elem, decodeIdx(_genObj.bankIdx))
+		_genObj.bankIdx = encodeBankIdx(_elem, decodeIdx(-1, _genObj.bankIdx))
 		break endif
 	if _field == ".pos" then
 		_genObj.pos = _elem
@@ -4391,7 +4501,7 @@ function decodeMapProperties(_field, _elem, _propStruct)
 return _propStruct
 
 /* Fills the appropriate variables from the file's saved cell properties. */
-// CORE LOADER
+// +CORE LOADER
 function decodeCellMap(_field, _elem, _cellArr)
 	loop if _field == ".pos" then
 		_cellArr[0] = decodeElem(_elem)
@@ -4878,23 +4988,29 @@ return _str
 
 /* Removes the trailing zeros and, if appropriate, the decimal point from a
 stringified float. */
-function strRemoveTrailingZeroes(_str)
+function strRemoveTrailingZeroes(ref _str)
 	var newLen = len(_str) - 1
+	var continue = strContains(_str, ".")
+	var i
 	
-	if strContains(_str, ".") then
-		var i
-		for i = len(_str) - 1 to -0.1 step -1 loop
-			if _str[i] == "0" then
+	for i = len(_str) - 1 to -0.1 step -1 loop
+		if !continue then // Check inside of loop to reduce stack size
+			break
+		endif
+		
+		if _str[i] == "0" then
+			newLen -= 1
+		else
+			if _str[i] == "." then
 				newLen -= 1
-			else
-				if _str[i] == "." then
-					newLen -= 1
-				endif
-				break
 			endif
-		repeat
-	endif
-return _str[:newLen]
+			
+			break
+		endif
+	repeat
+	
+	_str = _str[:newLen]
+return _str
 
 /* Generate a name based on a filepath. */
 // +CORE LOADER
@@ -4921,43 +5037,11 @@ return _num
 /* Round a float to a given number of decimal places. */
 // +CORE LOADER
 function roundDec(_num, _decimals)
-	var factor
+	var factor = pow(10, _decimals)
 	
-	// Use branch instead of pow() to reduce stack size
-	loop if _decimals <= 0 then
+	if _decimals <= 0 then
 		factor = 1
-		break endif
-	if _decimals == 1 then
-		factor = 10
-		break endif
-	if _decimals == 2 then
-		factor = 100
-		break endif
-	if _decimals == 3 then
-		factor = 1000
-		break endif
-	if _decimals == 4 then
-		factor = 10000
-		break endif
-	if _decimals == 5 then
-		factor = 100000
-		break endif
-	if _decimals == 6 then
-		factor = 1000000
-		break endif
-	if _decimals == 7 then
-		factor = 10000000
-		break endif
-	if _decimals == 8 then
-		factor = 100000000
-		break endif
-	if _decimals == 9 then
-		factor = 1000000000
-		break
-	else
-		factor = 10000000000
-		break
-	endif break repeat
+	endif
 	
 	_num = _num * factor
 	_num = round(_num)
@@ -4990,11 +5074,12 @@ return decPart * _num2
 function equals(_num1, _num2, _tolerance)
 	var isEqual = true
 	
-	if getType(_num1) == "vector" then
+	if strBeginsWith(str(_num1), "{") then // If a vector
 		var i
 		for i = 0 to 4 loop
 			if abs(_num1[i] - _num2[i]) > abs(_tolerance) then
 				isEqual = false
+				
 				break
 			endif
 		repeat
@@ -5425,13 +5510,14 @@ return _var
 
 // ----------------------------------------------------------------
 // VECTOR FUNCTIONS
-// +CORE LOADER
 
 /* Makes a 3D unit vector 2D by removing the Y element. */
+// +CORE LOADER
 function flattenY(_v)
 return normalize({_v.x, 0, _v.z})
 
 /* Converts degrees of rotation into a 3D unit vector. */
+// +CORE LOADER
 function vecFromRot(_hDeg, _vDeg)
 	vector v
 	
@@ -5444,6 +5530,7 @@ function vecFromRot(_hDeg, _vDeg)
 return v
 
 /* Rotates 3D vector _v around 3D vector _axis by _deg degrees. */
+// +CORE LOADER
 function axisRotVecBy(_v, _axis, _deg)
 	// Euler-Rodrigues rotation formula
 	var halfDeg = _deg / 2
@@ -5452,6 +5539,7 @@ function axisRotVecBy(_v, _axis, _deg)
 return _v + 2 * cos(halfDeg) * crossWV + 2 * cross(w, crossWV)
 
 /* Returns angle in degrees between two vectors. */
+// +CORE LOADER
 function getAngleBetweenVecs(_v1, _v2)
 	angle = 0
 	
@@ -5465,10 +5553,12 @@ function getAngleBetweenVecs(_v1, _v2)
 return angle
 
 /* Rounds an angle to closest multiple of _snapInc. */
+// +CORE LOADER
 function snapAngle(_deg, _snapInc)
 return round(atan2(_deg.x, _deg.y) * (_snapInc / 360)) * (360 / _snapInc)
 
 /* Rounds a vector to the given number of decimal places. */
+// +CORE LOADER
 function roundVec(_v, _decimals)
 	// Help avoid stack overflow by not using a loop
 	_v[0] = roundDec(_v[0], _decimals)
@@ -5481,6 +5571,7 @@ function roundVec(_v, _decimals)
 return _v
 
 /* Vector implementation of floor(). */
+// +CORE LOADER
 function floorVec(_v)
 	var i
 	for i = 0 to 4 loop
@@ -5489,6 +5580,7 @@ function floorVec(_v)
 return _v
 
 /* Vector implementation of ceil(). */
+// +CORE LOADER
 function ceilVec(_v)
 	var i
 	for i = 0 to 4 loop
@@ -5497,6 +5589,7 @@ function ceilVec(_v)
 return _v
 
 /* Remaps a 3D vector to a different context. */
+// +CORE LOADER
 function changeVecSpace(_vec, _newFwd, _newUp, _newR, _newPos)
 	var mapped = {0, 0 ,0}
 	mapped.x = _vec.x * _newFwd.x + _vec.y * _newUp.x + _vec.z * _newR.x + _newPos.x
@@ -5506,10 +5599,12 @@ return mapped
 
 /* Remaps a 3D vector to a different context. Accounts for the fact that
 FUZE uses a Z-forward orientation. */
+// +CORE LOADER
 function changeVecSpaceZFwd(_vec, _newFwd, _newUp, _newR, _newPos)
 return changeVecSpace(_vec, _newR * -1, _newUp, _newFwd, _newPos)
 
 /* Remaps a world vector as a local vector. */
+// +CORE LOADER
 function worldVecToLocalVec(_vec, _locFwd, _locUp, _locPos)
 	_vec -= _locPos
 	_locFwd = axisRotVecBy(_locFwd, _locUp, 90)
@@ -5538,12 +5633,14 @@ function worldVecToLocalVec(_vec, _locFwd, _locUp, _locPos)
 return newVec
 
 /* Remaps a local vector as a world vector. */
+// +CORE LOADER
 function localVecToWorldVec(_vec, _locFwd, _locUp, _locPos)
 	var newVec = changeVecSpaceZFwd(_vec, _locFwd, _locUp, cross(_locFwd, _locUp), {0, 0, 0})
 	newVec += _locPos
 return newVec
 
 /* Projects world vector to screen postion. */
+// +CORE LOADER
 function worldPosToScreenPos(_worldPos, _camFwd, _camUp, _camPos, _camFov)
 	var screenPos = {float_min, float_min}
 	var nearClip = 0.25
@@ -5563,6 +5660,7 @@ function worldPosToScreenPos(_worldPos, _camFwd, _camUp, _camPos, _camFov)
 return {screenPos.x, screenPos.y}
 
 /* Projects screen position to world vector. */
+// +CORE LOADER
 function screenPosToWorldPos(_scrPos, _zDepth, _camFwd, _camUp, _camPos, _camFov)
 	var adj = (30 - abs(80 - _camFov)) / 2500
 	_scrPos = (_scrPos - {gwidth(), gheight()}) / {gwidth(), gheight()} * -2 - 1
@@ -5571,12 +5669,21 @@ function screenPosToWorldPos(_scrPos, _zDepth, _camFwd, _camUp, _camPos, _camFov
 return localVecToWorldVec(locPos, _camFwd, _camUp, _camPos)
 
 /* Projects _v onto the line defined by _lineA and _lineB. */
+// +CORE LOADER
 function projectVec(_v, _lineA, _lineB)
 return _lineA + dot(_v - _lineA, _lineB - _lineA) / 
 		dot(_lineB - _lineA, _lineB - _lineA) * (_lineB - _lineA)
 
+/* Projects a vector onto the plane defined by _planeOrig and _norm. */
+// CORE LOADER
+function projectVecToPlane(_v, _planeOrig, _norm)
+	_norm = normalize(_norm)
+	var normDot = dot(_v - _planeOrig, _norm)
+return _v - _norm * normDot
+
 /* Finds rotation amount needed to snap an orientation defined by _fwd/_up on 
 _axis to to a multiple of _snapAmount. */
+// +CORE LOADER
 function getSnapToDeg(_sign, _axis, _snapAmount, _fwd, _up)
 	var zeroed = {0, 0, 1}
 	var rot = 0
@@ -5995,8 +6102,8 @@ return void
 
 /* Presents relinking options for a deleted object definition.
 _context can be 0 (prompt on boot) or 1 (prompt on map load). */
-function promptObjDefRelink(_delName, _context)
-	var result = [
+function promptObjDefRelink(ref _in, _delName, _context)
+	_in = [
 		.bank = -1,
 		.idx = -1,
 		.name = "",
@@ -6013,7 +6120,7 @@ function promptObjDefRelink(_delName, _context)
 	var repDef
 	
 	while !mergedResult.idx or !scopeResult.idx loop
-		lines = getRelinkList(_delName)
+		getRelinkList(lines, _delName)
 		lines = insertArray(lines, 
 			[
 				"Delete all references to '" + _delName + "' without relinking"
@@ -6098,10 +6205,10 @@ function promptObjDefRelink(_delName, _context)
 							mergedResult.idx == 1, [ g_currentMapName ])
 					endif
 					
-					result.bank = bankIdx.bank
-					result.idx = bankIdx.idx
-					result.name = repDef.name
-					result.isMerged = mergedResult.idx != 1
+					_in.bank = bankIdx.bank
+					_in.idx = bankIdx.idx
+					_in.name = repDef.name
+					_in.isMerged = mergedResult.idx != 1
 				endif
 				
 				if _context then
@@ -6110,7 +6217,7 @@ function promptObjDefRelink(_delName, _context)
 			endif
 		endif
 	repeat
-return result
+return _in
 
 /* Displays a scrollable list from which a selection can be made. */
 function promptList(_lines, _promptLines)
@@ -6329,10 +6436,29 @@ function showUnsavedPrompt()
 	)
 return confirmPrompt
 
+function getSprThemeCol()
+	var fillCol = g_theme.inactiveCol
+	var outlineCol = g_theme.textCol
+	
+	if fillCol == outlineCol then
+		fillCol = g_theme.textSelCol
+		outlineCol = g_theme.bgSelCol
+	endif
+	
+	result = [
+		.fill = fillCol,
+		.outline = outlineCol
+	]
+return result
+
 /* Displays the Celqi splash screen. */
 function showSplash(_length)
 	var rStick = false
 	var timer = 0
+	var sprCol = getSprThemeCol()
+	
+	initLogoSpr()
+	initLogoTextSpr()
 	
 	var sprScale = {(gwidth() / 5) / 32, (gwidth() / 5) / 32}
 	setSpriteScale(g_logo.spr, sprScale)
@@ -6453,16 +6579,6 @@ function aimLoad(_dir)
 	endif
 return void
 
-/* Sets default values for the load sprite. */
-function initLogoSpr()
-	if !g_logo.sprExists then
-		g_logo.spr = createSprite()
-		setSpriteImage(g_logo.spr, g_logo.img[0])
-		setSpriteScale(g_logo.spr, {4, 4, 4})
-		g_logo.sprExists = true
-	endif
-return void
-
 /* If map hasn't been named yet, prompts the user for a name. */
 function showSave()
 	var mapFile = openFile()
@@ -6565,9 +6681,9 @@ function showMapStats()
 	
 	for i = 0 to len(g_cell) loop
 		for j = g_cellObjStart to len(g_cell[i]) loop
-			if !isMapObjRef(g_cell[i][j]) then
+			if !isMapObjRef(-1, g_cell[i][j]) then
 				objCount += 1
-				name = getMapObjName(g_cell[i][j])
+				getMapObjName(name, g_cell[i][j])
 				nameIdx = findAtSubIdx(objNames, name, 0)
 				
 				if nameIdx < 0 then
@@ -6606,7 +6722,8 @@ function getMapStatsObjName(_obj)
 return getMapStatsObjName(_obj, 0)
 
 function getMapStatsObjName(_obj, _tabDepth)
-	var name = getMapObjName(_obj)
+	var name
+	getMapObjName(name, _obj)
 	
 	if len(_obj.children) then
 		name += chr(10)
@@ -6619,7 +6736,7 @@ function getMapStatsObjName(_obj, _tabDepth)
 		var nameIdx
 		
 		for i = 0 to len(_obj.children) loop
-			childName = getMapObjName(_obj.children[i])
+			getMapObjName(childName, _obj.children[i])
 			nameIdx = findAtSubIdx(nameArr, childName, 0)
 			
 			if nameIdx < 0 then
@@ -6658,11 +6775,17 @@ return name
 a margin of error. */
 // +CORE LOADER
 function getObjExtent(_obj, _pos)
+return getObjExtent(_obj, _pos, {1, 1, 1}, {0, 0, 1}, {0, 1, 0})
+
+function getObjExtent(_obj, _pos, _scale, _fwd, _up)
+	setObjectPos(_obj, {0, 0, 0})
+	setObjectScale(_obj, {1, 1, 1})
+	setObjRot(_obj, {0, 0, 0}, {0, 0, 1}, {0, 1, 0})
 	extent ext
 	
-	var startResult = findObjExtStartSize(_obj, _pos)
+	var startResult = findObjExtStartSize(_obj, {0, 0, 0})
 	if startResult.isValid then
-		ext = findAllObjExtDirs(_obj, _pos, startResult.colBox, startResult.scale)
+		ext = findAllObjExtDirs(_obj, {0, 0, 0}, startResult.colBox, startResult.scale)
 	else
 		ext = [
 			.lo = {-0.5, -0.5, -0.5},
@@ -6671,6 +6794,9 @@ function getObjExtent(_obj, _pos)
 	endif
 	
 	removeObject(startResult.colBox)
+	setObjectPos(_obj, _pos)
+	setObjectScale(_obj, _scale)
+	setObjRot(_obj, _pos, _fwd, _up)
 return ext
 
 /* When finding an object's extent, we first need to know where the object is
@@ -6740,11 +6866,14 @@ function getExtCenter(_ext)
 return ctr
 
 /* Gets the longest dimension of an extent. */
-// +CORE LOADER
+// CORE LOADER
 function getMaxDim(_ext)
-	var h = _ext.hi.y - _ext.lo.y
-	var w = _ext.hi.z - _ext.lo.z
-	var d = _ext.hi.x - _ext.lo.x
+return getMaxDim(_ext, {1, 1, 1})
+
+function getMaxDim(_ext, _scale)
+	var h = (_ext.hi.y - _ext.lo.y) * _scale.y
+	var w = (_ext.hi.z - _ext.lo.z) * _scale.z
+	var d = (_ext.hi.x - _ext.lo.x) * _scale.x
 	var maxDim = h
 	if w > maxDim then
 		maxDim = w
@@ -6896,7 +7025,7 @@ return grpExt
 /* Recalculates extent to include an additional object. */
 // +CORE LOADER
 function addObjectToGrpExt(_grpExt, _obj)
-	var inSitu = getExtMinMax(getObjDef(_obj).ext, 
+	var inSitu = getExtMinMax(getObjDef(-1, _obj).ext, 
 		_obj.scale, _obj.fwd, _obj.up)
 	inSitu.lo += _obj.pos
 	inSitu.hi += _obj.pos
@@ -6991,6 +7120,7 @@ function countObjDefs()
 return count
 
 /* Returns an active built from an object definition. */
+// +CORE LOADER
 function activeFromObjDef(_bank, _idx)
 return activeFromObjDef(_bank, _idx, true, false, -1)
 
@@ -7020,8 +7150,8 @@ function activeFromObjDef(_bank, _idx, _createModel, _useDef, _def)
 	var newChild
 	
 	for i = 0 to len(_def.children) loop
-		newChild = activeFromObjDef(decodeBank(act.children[i].bankIdx), 
-			decodeIdx(act.children[i].bankIdx), _createModel, false, -1)
+		newChild = activeFromObjDef(decodeBank(-1, act.children[i].bankIdx), 
+			decodeIdx(-1, act.children[i].bankIdx), _createModel, false, -1)
 		act.children[i].children = newChild.children
 	repeat
 	
@@ -7059,41 +7189,62 @@ return result
 /* Checks whether a given object type exists within an object definition's 
 child structure. */
 // +CORE LOADER
-function isObjInObjDef(_name, _def)
-	var hit = false
+function isObjInObjDef(ref _in, _name, _def)
+	_in = false
+	var mapObjName
+	
 	if _def.name == _name then
-		hit = true
+		_in = true
 	else
 		var i
 		for i = 0 to len(_def.children) loop
-			if getMapObjName(_def.children[i]) == _name then
-				hit = true
+			getMapObjName(mapObjName, _def.children[i])
+			
+			if mapObjName == _name then
+				_in = true
 			else
-				hit = isObjInObjDef(_name, getObjDef(_def.children[i]))
+				var objDef
+				
+				//if strFind(mapObjName, "Crate") > -1 then
+				//	debugPrint(0, [mapObjName + " in ", _def.name, str(i) + " of " + str(len(_def.children) - 1)])
+				//endif
+				
+				getObjDef(objDef, _def.children[i])
+				isObjInObjDef(_in, _name, objDef)
 			endif
 			
-			if hit then break endif
+			if _in then break endif
 		repeat
 	endif
-return hit
+return _in
 
 /* Returns a list of definitions that are candidates for relinking missing 
 definition _name. If a definition contains an instance of _name, it can't be 
 used to relink _name. */
-function getRelinkList(_name)
+function getRelinkList(ref _in, _name)
 	array list[0]
+	_in = list
 	
 	var i
 	var j
 	
 	for i = 1 to len(g_obj) loop
 		for j = 0 to len(g_obj[i]) loop
-			if !isObjInObjDef(_name, g_obj[i][j]) then
-				list = push(list, g_obj[i][j].name)
+			//if i == 3 then
+			//	debugPrint(1, ["getRelinkList", "idx", j, g_obj[i][j].name])
+			//endif
+			
+			var inDef
+			isObjInObjDef(inDef, _name, g_obj[i][j])
+			
+			if !inDef then
+				_in = push(_in, g_obj[i][j].name)
 			endif
 		repeat
+		//debugPrint(1, ["getRelinkList", "done with bank", g_bankName[i]])
 	repeat
-return list
+	//debugPrint(1, ["leaving getRelinkList"])
+return _in
 
 /* Adds a new merged object definition to g_obj. */
 function addMergedObjDef(_name, _bank, _allowNesting)
@@ -7222,7 +7373,11 @@ function resolveDelDefMenuAction(_action)
 		if isUnmerge then
 			templateObj = activeFromObjDef(del[0].bank, del[0].idx)
 		else
-			templateObj = activeFromObjDef(decodeBank(g_activeObj.bankIdx), decodeIdx(g_activeObj.bankIdx))
+			var bank
+			decodeBank(bank, g_activeObj.bankIdx)
+			var idx
+			decodeIdx(idx, g_activeObj.bankIdx)
+			templateObj = activeFromObjDef(bank, idx)
 		endif
 		
 		if isUnmerge or (len(templateObj.children) and !g_cur.isMerged) then
@@ -7284,7 +7439,7 @@ function resolveMergedObjDefChanges(_missingRefs)
 	
 	var i
 	for i = 0 to len(_missingRefs) loop
-		promptObjDefRelink(_missingRefs[i], 0)
+		promptObjDefRelink(-1, _missingRefs[i], 0)
 	repeat
 	
 	// Rebuild merged extents in case base filepaths were changed
@@ -7354,10 +7509,12 @@ _delInfo is an array whose elements are in the form
 _delAction can be 0 (remove), 1 (unmerge), or 2 (replace). 
 _template is an active and is only needed if _delAction is 2. */
 function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _template)
-	var i
 	var j
 	var jLimit
 	var objFound
+	var isRef
+	var bank
+	var idx
 	var l
 	var objBuf
 	var k
@@ -7366,22 +7523,38 @@ function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _
 	var newObj
 	var changed
 	var changedObj
+	var cellLimit = len(g_cell)
+	var delCells
+	var i = 0
 	
-	for i = 0 to len(g_cell) loop
+	while i < cellLimit loop
 		j = g_cellObjStart
 		jLimit = len(g_cell[i])
 		
 		while j < jLimit loop
 			objFound = false
+			isMapObjRef(isRef, g_cell[i][j])
 			
-			if !isMapObjRef(g_cell[i][j]) then
+			if !isRef then
 				for l = 0 to len(_delInfo) loop
 					// If this is the object itself
-					if decodeBank(g_cell[i][j].bankIdx) == _delInfo[l].bank
-							and decodeIdx(g_cell[i][j].bankIdx) == _delInfo[l].idx then
+					decodeBank(bank, g_cell[i][j].bankIdx)
+					decodeIdx(idx, g_cell[i][j].bankIdx)
+					
+					if bank == _delInfo[l].bank and idx == _delInfo[l].idx then
 						objBuf = updateObjBankIdx(g_cell[i][j], _delInfo).obj
 						
-						edDeleteMapObj(i, j)
+						//breakpoint(str(i) + " " + str(j))
+						delCells = edDeleteMapObj(i, j)
+						//breakpoint("1")
+						
+						var origI = i
+						
+						for k = 0 to len(delCells) loop
+							if delCells[k] <= origI then
+								i -= 1
+							endif
+						repeat
 						
 						if _delAction == 1 then // Unmerge
 							for k = 0 to len(objBuf.children) loop
@@ -7392,6 +7565,8 @@ function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _
 							repObj = applyGrpTransform(_template, objBuf)
 							newObj = placeObjFromTemplate(repObj, g_cur.isMerged)
 						endif endif
+						
+						cellLimit = len(g_cell)
 						
 						jLimit -= 1
 						j -= 1
@@ -7407,16 +7582,26 @@ function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _
 					
 					for k = 0 to len(_changedDefs) loop
 						// If this object was changed by the def deletion, replace it
-						if decodeBank(g_cell[i][j].bankIdx) == _changedDefs[k].bank 
-								and decodeIdx(g_cell[i][j].bankIdx) == _changedDefs[k].idx then
+						decodeBank(bank, g_cell[i][j].bankIdx)
+						decodeIdx(idx, g_cell[i][j].bankIdx)
+						
+						if bank == _changedDefs[k].bank and idx == _changedDefs[k].idx then
 							edDeleteMapObj(i, j)
 							
-							changedObj = activeFromObjDef(decodeBank(objBuf.bankIdx), decodeIdx(objBuf.bankIdx), false)
+							if len(g_cell) != cellLimit then
+								i -= (cellLimit - len(g_cell))
+								cellLimit = len(g_cell)
+							endif
+							
+							decodeBank(bank, objBuf.bankIdx)
+							decodeIdx(idx, objBuf.bankIdx)
+							
+							changedObj = activeFromObjDef(bank, idx, false)
 							changedObj.pos = objBuf.pos
 							changedObj.fwd = objBuf.fwd
 							changedObj.up = objBuf.up
 							changedObj.scale = objBuf.scale
-							changedObj = cloneObjLightDataRecursive(objBuf, changedObj, false)
+							cloneObjLightDataRecursive(objBuf, changedObj, false)
 							newObj = placeObjFromTemplate(changedObj, true)
 							
 							changed = true
@@ -7433,6 +7618,8 @@ function resolveObjDefDeletionForLoadedMap(_delInfo, _changedDefs, _delAction, _
 			endif
 			j += 1
 		repeat
+		
+		i += 1
 	repeat
 return void
 
@@ -7441,6 +7628,8 @@ _delInfo is an array whose elements are in the form
 [ .bank = BANK_NUM, .idx = IDX_NUM, .name = NAME ]. */
 function resolveObjDefDeletionForActiveObj(_delInfo, _changedDefs, _newBank, _newIdx)
 	var activeAffected = false
+	var bank
+	var idx
 	
 	// Clamp to new bank size in case the deleted object was the last in the bank
 	_newBank = clamp(_newBank, g_lightBank, len(g_obj) - 1)
@@ -7450,7 +7639,10 @@ function resolveObjDefDeletionForActiveObj(_delInfo, _changedDefs, _newBank, _ne
 	
 	var i
 	for i = 0 to len(_delInfo) loop
-		if decodeBank(g_activeObj.bankIdx) == _delInfo[i].bank and decodeIdx(g_activeObj.bankIdx) == _delInfo[i].idx then
+		decodeBank(bank, g_activeObj.bankIdx)
+		decodeIdx(idx, g_activeObj.bankIdx)
+		
+		if bank == _delInfo[i].bank and idx == _delInfo[i].idx then
 			replaceActiveObj(_newBank, _newIdx)
 			activeAffected = true
 			
@@ -7464,12 +7656,17 @@ function resolveObjDefDeletionForActiveObj(_delInfo, _changedDefs, _newBank, _ne
 		
 		for i = 0 to len(_changedDefs) loop
 			// If this object was changed by the def deletion, replace it
-			if decodeBank(g_activeObj.bankIdx) == _changedDefs[i].bank 
-					and decodeIdx(g_activeObj.bankIdx) == _changedDefs[i].idx then
+			decodeBank(bank, g_activeObj.bankIdx)
+			decodeIdx(idx, g_activeObj.bankIdx)
+			
+			if bank == _changedDefs[i].bank 
+					and idx == _changedDefs[i].idx then
 				objBuf.fwd = g_cur.fwd
 				objBuf.up = g_cur.up
+				decodeBank(bank, objBuf.bankIdx)
+				decodeIdx(idx, objBuf.bankIdx)
 				
-				replaceActiveObj(decodeBankIdx(objBuf.bankIdx), decodeIdx(objBuf.bankIdx), g_cur.scale, g_cur.fwd, g_cur.up, true, objBuf)
+				replaceActiveObj(bank, idx, g_cur.scale, g_cur.fwd, g_cur.up, true, objBuf)
 				
 				changed = true
 				break
@@ -7477,7 +7674,10 @@ function resolveObjDefDeletionForActiveObj(_delInfo, _changedDefs, _newBank, _ne
 		repeat
 		
 		if !changed then
-			replaceActiveObj(decodeBank(objBuf.bankIdx), decodeIdx(objBuf.bankIdx), g_cur.scale, g_cur.fwd, g_cur.up, true, objBuf)
+			decodeBank(bank, objBuf.bankIdx)
+			decodeIdx(idx, objBuf.bankIdx)
+			
+			replaceActiveObj(bank, idx, g_cur.scale, g_cur.fwd, g_cur.up, true, objBuf)
 		endif
 	endif
 return void
@@ -7640,6 +7840,7 @@ function replaceObjDefRecursive(_checkObj, _oldInfo, _newObjs, _returnObjs)
 	var needReplace
 	var bank
 	var idx
+	var mapObjName
 	var j
 	
 	for i = 0 to len(_oldInfo) loop
@@ -7652,13 +7853,14 @@ function replaceObjDefRecursive(_checkObj, _oldInfo, _newObjs, _returnObjs)
 				needReplace = true
 			endif
 		else
-			bank = decodeBank(_checkObj.bankIdx)
-			idx = decodeIdx(_checkObj.bankIdx)
+			decodeBank(bank, _checkObj.bankIdx)
+			decodeIdx(idx, _checkObj.bankIdx)
+			getMapObjName(mapObjName, _checkObj)
 			
 			if _checkObj.bankIdx == -1 
 					or (bank >= 0 and bank == _oldInfo[i].bank 
 					and idx >= 0 and idx == _oldInfo[i].idx) 
-					or getMapObjName(_checkObj) == _oldInfo[i].name then
+					or mapObjName == _oldInfo[i].name then
 				needReplace = true
 			endif
 		endif
@@ -7682,30 +7884,40 @@ function replaceObjDefRecursive(_checkObj, _oldInfo, _newObjs, _returnObjs)
 		don't need to be adjusted. (This happens during initial program load, where 
 		missing objects are simply never assigned bank/idx numbers but must still 
 		be deleted from merged object defs.) */
-		if _oldInfo[0].bank >= 0 then
-			var updateResult = updateObjBankIdx(_checkObj, _oldInfo, false)
-			_checkObj = updateResult.obj
-			bankIdxChanged = updateResult.idxChanged or updateResult.bankChanged
-		endif
+		
+		for i = 0 to len(_oldInfo) loop
+			if _oldInfo[i].bank >= 0 then
+				var updateResult = updateObjBankIdx(_checkObj, _oldInfo, false)
+				_checkObj = updateResult.obj
+				bankIdxChanged = updateResult.idxChanged or updateResult.bankChanged
+				
+				break
+			endif
+		repeat
 		
 		/* If the object contains an old object or a replacement object, mark it
 		to have its extent rebuilt. Note that we include replacement objects even
-		though this wll trigger false positives because we ned to accommodate the
+		though this wll trigger false positives because we need to accommodate the
 		fact that when replaing a missing base object, the original base object
 		becomes undetectable after the first replacement -- so to be safe, we just
 		include everything that might once have been the missing object. */
 		array involvedObjs[len(_newObjs)]
 		
-		var i
 		for i = 0 to len(involvedObjs) loop
-			involvedObjs[i] = getMapObjName(_newObjs[i])
+			getMapObjName(mapObjName, _newObjs[i])
+			involvedObjs[i] = mapObjName
 		repeat
 		
 		for i = 0 to len(_oldInfo) loop
 			involvedObjs = push(involvedObjs, _oldInfo[i].name)
 		repeat
 		
-		var checkActive = activeFromObjDef(decodeBank(_checkObj.bankIdx), decodeIdx(_checkObj.bankIdx))
+		var bank
+		decodeBank(bank, _checkObj.bankIdx)
+		var idx
+		decodeIdx(idx, _checkObj.bankIdx)
+		
+		var checkActive = activeFromObjDef(bank, idx)
 		for i = 0 to len(involvedObjs) loop
 			if objContains(checkActive, involvedObjs[i]) then
 				needExtUpdate = true
@@ -7728,19 +7940,38 @@ return result
 /* Finds the definiton for an instantiated object or returns a default definition 
 if none exists. */
 // +CORE LOADER
-function getObjDef(_obj)
-	var def
+function getObjDef(ref _in, _obj)
 	var defIsValid = false
+	var realBankIdx = false
 	
 	/* During merged def loads, .bankIdx may temporarily contain a missing object's
 	name, so we screen this with len(). */
 	if !len(_obj.bankIdx) then
+		realBankIdx = true
+		/*
 		if _obj.bankIdx != -1 then
-			var idx = decodeIdx(_obj.bankIdx)
-			var bank = decodeBank(_obj.bankIdx)
-			def = g_obj[bank][idx]
+			var idx
+			decodeIdx(idx, _obj.bankIdx)
+			var bank
+			decodeBank(bank, _obj.bankIdx)
+			var objBank = g_obj[bank]
+			_in = objBank[idx]
+			//_in = g_obj[bank][idx]
 			defIsValid = true
 		endif
+		*/
+	endif
+	
+	var bankIdxStr = str(_obj.bankIdx) // Our if statements are a bit roundabout to help avoid excess stack entries
+	if realBankIdx and bankIdxStr != "-1" then
+		var idx
+		decodeIdx(idx, _obj.bankIdx)
+		var bank
+		decodeBank(bank, _obj.bankIdx)
+		var objBank = g_obj[bank]
+		_in = objBank[idx]
+		//_in = g_obj[bank][idx]
+		defIsValid = true
 	endif
 	
 	if !defIsValid then
@@ -7755,9 +7986,9 @@ function getObjDef(_obj)
 		missing.children = []
 		missing.lights = []
 		
-		def = missing
+		_in = missing
 	endif
-return def
+return _in
 
 	// ----------------------------------------------------------------
 	// OBJECT PLACEMENT
@@ -7781,8 +8012,10 @@ function placeActive(_c)
 			placeObjFromTemplate(template, g_cur.isMerged)
 			
 			pruneLightIcons()
-			//updateCurColContext(true)
 			updateCurContexts(true)
+			updateCamCellContext(true)
+			updateCamCellOutlinePos()
+			
 			g_dirtyMap = true
 		else if !_c.a then
 			g_cDat[g_cIdx.a].held = false
@@ -7845,9 +8078,9 @@ return placedObj
 function placeLightFromTemplate(_t)
 	_t.light = placeLightByType(_t.name, _t.col, _t.pos, _t.brightness, _t.res, _t.fwd, _t.spread, _t.range)
 	
-	if _t.col.a != g_sprAlpha then _t.col.a = g_sprAlpha endif
-	
 	if g_editor then
+		if _t.col.a != g_sprAlpha then _t.col.a = g_sprAlpha endif
+		
 		_t.spr = createSprite()
 		
 		loop if _t.name == "point" then
@@ -7873,7 +8106,7 @@ function placeLightFromTemplate(_t)
 return _t
 
 /* Universal light placement function. */
-// ++CORE LOADER
+// +CORE LOADER
 function placeLightByType(_type, _pos, _dir, _col, _brightness, _range, _res)
 return placeLightByType(_type, _col, _pos, _brightness, _res, _dir, 0, _range)
 
@@ -7912,8 +8145,18 @@ return newLight
 
 /* Places an object that contains children or lights from a template. */
 // +CORE LOADER
-function placeGroupObj(_template, _appliedTemplate, _fov)
-	var result = placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
+function placeGrpObj(_template, _appliedTemplate)
+	var fov
+	
+	if g_editor then
+		fov = g_cam.fov
+	else
+		fov = 70
+	endif
+return placeGrpObj(_template, _appliedTemplate, fov)
+
+function placeGrpObj(_template, _appliedTemplate, _fov)
+	var result = placeGrpObjNoLightTransform(_template, _appliedTemplate, _fov)
 	
 	var lightContainer = [ 
 		.lights = result.lights, 
@@ -7924,14 +8167,11 @@ function placeGroupObj(_template, _appliedTemplate, _fov)
 		.up = {0, 1, 0}]
 		
 	setGrpLightsPos(lightContainer, _fov)
-	setGrpLightsSprScale(lightContainer, lightContainer.scale)
+	edFunction(-1, "setGrpLightsSprScale", [ lightContainer, lightContainer.scale ])
 return result
 
-function placeGroupObj(_template, _appliedTemplate)
-return placeGroupObj(_template, _appliedTemplate, g_cam.fov)
-
 // +CORE LOADER
-function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
+function placeGrpObjNoLightTransform(_template, _appliedTemplate, _fov)
 	var newObj
 	var children
 	array lights[len(_template.lights)]
@@ -7947,12 +8187,12 @@ function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 		var i
 		
 		for i = 0 to len(_template.children) loop
-			bank = decodeBank(_template.children[i].bankIdx)
-			idx = decodeIdx(_template.children[i].bankIdx)
+			decodeBank(bank, _template.children[i].bankIdx)
+			decodeIdx(idx, _template.children[i].bankIdx)
 			
 			if len(_template.children[i].children) 
 					or len(_template.children[i].lights) then
-				newGrp = placeGroupObjNoLightTransform(
+				newGrp = placeGrpObjNoLightTransform(
 					_template.children[i],
 					_appliedTemplate.children[i],
 					_fov
@@ -7962,7 +8202,7 @@ function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 				children[i].lights = newGrp.lights
 			else
 				children[i].obj = placeObject(
-					getObjDef(_template.children[i]).obj, 
+					getObjDef(-1, _template.children[i]).obj, 
 					_template.children[i].pos,
 					_template.children[i].scale
 				)
@@ -7981,8 +8221,8 @@ function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 		clear(black)
 		ink(white)
 		textSize(gheight() / 25)
-		printAt(1, 1, "Error in placeGroupObjNoLightTransform():" + chr(10) +
-			getMapObjName(_template) + " is not a merged object." + chr(10) +
+		printAt(1, 1, "Error in placeGrpObjNoLightTransform():" + chr(10) +
+			getMapObjName(-1, _template) + " is not a merged object." + chr(10) +
 			"Creating placeholder waffle ...")
 		update()
 		sleep(1)
@@ -7998,8 +8238,10 @@ function placeGroupObjNoLightTransform(_template, _appliedTemplate, _fov)
 	]
 return result
 
+/* Creates a cube collider of the same size as _obj's extent. */
+// +CORE LOADER
 function createObjCollider(_obj)
-	var ext = g_obj[decodeBank(_obj.bankIdx)][decodeidx(_obj.bankIdx)].ext
+	var ext = g_obj[decodeBank(-1, _obj.bankIdx)][decodeIdx(-1, _obj.bankIdx)].ext
 	var colliderPos = getExtCenter(ext)
 	var colliderScale = absVec3(ext.hi - ext.lo) / 2
 	var colObj = [
@@ -8066,104 +8308,20 @@ function addCellToGridBitList(_obj, _objCollider, _midCell, _midCellPos)
 	]
 return result
 
-function addCellToGridBitList2(_obj, _midCell, _adjIdx, _skipCell)
-	var cellHalfW = getCellWidth() / 2
-	var adjCell = g_cell[_midCell][1][_adjIdx]
-	var adjCellPos = getCellPosFromAdjIdx(_midCell, _adjIdx)
-	var cellHalfW = getCellWidth() / 2
-	var cellCollider = placeObject(cube, adjCellPos, {cellHalfW, cellHalfW, cellHalfW})
-	var added = false
-	
-	var allowCell = []
-	
-	//if !contains(_skipCell, {adjCell, adjCellPos.x, adjCellPos.y, adjCellPos.z}) then
-		var inter = mergedObjIntersect(_obj, cellCollider)
-		
-		if inter then
-			if adjCell < 0 then
-				adjCell = addCell(adjCellPos)
-			endif
-			
-			_obj = getGrpCollisionBits(_obj, adjCell)
-			added = true
-			
-			var dirs = [
-				{1, 0, 0},
-				{-1, 0, 0},
-				{0, 1, 0},
-				{0, -1, 0},
-				{0, 0, 1},
-				{0, 0, -1}
-			]
-			var adjAdjIdx
-			var mask
-			var objGridBit = getObjGridBitForCell(_obj, adjCell)
-			var adjAdjCell
-			
-			/* If the object isn't near the edge of the cell, we assume it doesn't
-			extend into that edge's adjacent cell and we therefore exclude that
-			adjacent cell from further checks. */
-			var i
-			for i = 0 to len(dirs) loop
-				adjAdjIdx = getAdjIdxFromOffset(dirs[i])
-				adjAdjCell = g_cell[adjCell][1][adjAdjIdx]
-				
-				if adjAdjCell >= 0 then
-					mask = getAdjBitmask(dirs[i])
-					
-					/*
-					if !(mask[0] & objGridBit[0]
-							or mask[1] & objGridBit[1]) then
-						_skipCell = push(_skipCell, {adjAdjCell, 
-							g_cell[adjAdjCell][0].x, g_cell[adjAdjCell][0].y, 
-							g_cell[adjAdjCell][0].z})
-					endif
-					*/
-					if mask[0] & objGridBit[0]
-							or mask[1] & objGridBit[1] then
-						allowCell = push(allowCell, adjAdjCell)
-					endif
-					/*
-					mask = [
-						[
-							0,
-							[ mask[0], mask[1] ]
-						]
-					]
-					*/
-					//debugPrint(0, [dirs[i]])
-					//debugGridBit(mask, 0)
-					//debugGridBit3d(mask, 999)
-				endif
-			repeat
-		endif
-	//endif
-	
-	_skipCell = push(_skipCell, {adjCell, adjCellPos.x, adjCellPos.y, adjCellPos.z})
-	removeObject(cellCollider)
-	
-	var result = [
-		.obj = _obj,
-		.added = added,
-		.skip = _skipCell,
-		.allow  = allowCell
-	]
-return result
-
 /* Places an object in the map. */
-// CORE LOADER
+// +CORE LOADER
 function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 	_pos = roundVec(_pos, 6)
 	mapObj newObj
 	
 	if _isGrp then
-		var newGrp = placeGroupObj(_activeObj, _activeObj)
+		var newGrp = placeGrpObj(_activeObj, _activeObj)
 		newObj.obj = newGrp.obj
 		newObj.children = newGrp.children
 		newObj.lights = newGrp.lights
 	else
 		newObj.obj = placeObject(
-			getObjDef(_activeObj).obj,
+			getObjDef(-1, _activeObj).obj,
 			_pos, 
 			_scale
 		)
@@ -8177,26 +8335,28 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 	newObj.bankIdx = _activeObj.bankIdx
 	setObjectPos(newObj.obj, _pos)
 	setObjRot(newObj.obj, _pos, _fwd, _up)
-	setGrpLightsPos(newObj, g_cam.fov)
+	setGrpLightsPos(newObj)
 	
+	var isRef
 	var canPlaceObj = true
 	var baseCell = -1
 	var baseIdx = -1
 	var refCellIdx = -1
-	
 	array cellIdx[0]
 	array checkedCellPos[0]
 	var i
-	
 	var addResult
 	var newObjCell
 	array allowCell[0]
 	
-	var objDef = g_obj[decodeBank(newObj.bankIdx)][decodeidx(newObj.bankIdx)]
+	var bank
+	decodeBank(bank, newObj.bankIdx)
+	var idx
+	decodeIdx(idx, newObj.bankIdx)
+	var objDef = g_obj[bank][idx]
 	var extCenter = getExtCenter(getExtMinMax(objDef.ext, newObj.scale, newObj.fwd, newObj.up))
 	var objCollider = createObjCollider(newObj)
 	var checkCell = getCellIdxFromPos(objCollider.pos)
-	
 	var toCheck = [ [ checkCell, getCellPosFromPos(objCollider.pos)] ]
 	var toCheckCell
 	var toCheckPos
@@ -8222,7 +8382,9 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 					
 					// Ensure the object doesn't already exist
 					for i = g_cellObjStart to len(g_cell[baseCell]) loop
-						if !isMapObjRef(g_cell[baseCell][i]) then
+						isMapObjRef(isRef, g_cell[baseCell][i])
+						
+						if !isRef then
 							if mapObjEquals(g_cell[baseCell][i], newObj) then
 								canPlaceObj = false
 								
@@ -8272,7 +8434,8 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 		
 		// Store data about light sprites if we're in the editor
 		if g_editor then
-			var lightTypes = getGrpLightsTypes(newObj)
+			var lightTypes
+			edFunction(lightTypes, "getGrpLightsTypes", [ newObj ])
 			
 			if len(lightTypes) then
 				var objRef = [ .cell = cellIdx[0], .idx = len(g_cell[cellIdx[0]]) - 1 ]
@@ -8288,158 +8451,6 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 		// Uncomment to view gridBit data when an object is placed
 		//debugGridBit3d(g_cell[cellIdx[0]][len(g_cell[cellIdx[0]]) - 1].gridBitList, 999)
 		//debugGridBit(g_cell[cellIdx[0]][len(g_cell[cellIdx[0]]) - 1].gridBitList, 0)
-	endif
-return newObj
-
-function addMapObj2(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
-	_pos = roundVec(_pos, 6)
-	
-	var baseCell = getCellIdxFromPos(_pos)
-	var canPlaceObj = true
-	
-	var baseObj
-	var i
-	for i = g_cellObjStart to len(g_cell[baseCell]) loop
-		if !isMapObjRef(g_cell[baseCell][i]) then
-			baseObj = g_cell[baseCell][i]
-			if _pos == baseObj.pos and _fwd == baseObj.fwd and _up == baseObj.up
-					and _scale == baseObj.scale and _activeObj.bankIdx == baseObj.bankIdx then
-				canPlaceObj = false
-				break
-			endif
-		endif
-		
-		if !canPlaceObj then break endif
-	repeat
-	
-	mapObj newObj
-	
-	if canPlaceObj then
-		if _isGrp then
-			var newGrp = placeGroupObj(_activeObj, _activeObj)
-			newObj.obj = newGrp.obj
-			newObj.children = newGrp.children
-			newObj.lights = newGrp.lights
-		else
-			newObj.obj = placeObject(
-				getObjDef(_activeObj).obj,
-				_pos, 
-				_scale
-			)
-			newObj.children = []
-		endif
-		
-		newObj.fwd = _fwd
-		newObj.up = _up
-		newObj.scale = _scale
-		newObj.pos = _pos
-		newObj.bankIdx = _activeObj.bankIdx
-		setObjectPos(newObj.obj, _pos)
-		setObjRot(newObj.obj, _pos, _fwd, _up)
-		setGrpLightsPos(newObj, g_cam.fov)
-		
-		var baseCell = -1
-		var baseIdx = -1
-		var refCellIdx = -1
-		
-		array cellIdx[0]
-		array checkedCell[0]
-		
-		// Add object to all cells that it intersects
-		var checkCell
-		var addResult
-		var newObjCell
-		var adjDir = [ 4, 10, 12, 14, 16, 22 ]
-		
-		array allowCell[0]
-		
-		var h = -1
-		var i
-		
-		while h < len(cellIdx) loop
-			/* Ensure that base cell is the first processed so that baseIdx and
-			refCellIdx are accurate when added to subsequent cells. */
-			if h == -1 then
-				if isPosInCell(_pos, g_cur.cell) then
-					checkCell = g_cur.cell
-				else
-					checkCell = getCellIdxFromPos(_pos)
-					if checkCell < 0 then
-						checkCell = addCell(_pos)
-					endif
-				endif
-				baseCell = checkCell
-				addResult = addCellToGridBitList2(newObj, baseCell, 13, checkedCell)
-				checkedCell = addResult.skip
-				
-				newObj = addResult.obj
-				cellIdx = insert(cellIdx, baseCell, 0)
-				baseIdx = len(g_cell[baseCell])
-				refCellIdx = encodeCellIdx(baseCell, baseIdx)
-			else
-				checkCell = cellIdx[h]
-			endif
-			
-			/* We check only cardinal adjacent cells instead of all of them on the assumption that
-			any non-cardinal adjacency will still be found because it's another cell's cardinal 
-			adjacency. This gives a small speed boost. */
-			for i = 0 to len(adjDir) loop
-				addResult = addCellToGridBitList2(newObj, checkCell, adjDir[i], checkedCell)
-				checkedCell = addResult.skip
-				
-				if addResult.added then
-					newObj = addResult.obj
-					newObjCell = g_cell[checkCell][1][adjDir[i]]
-					cellIdx = push(cellIdx, newObjCell)
-					mapObjRef newRef
-					newRef.cellIdx = refCellIdx
-					g_cell[newObjCell] = push(g_cell[newObjCell], newRef)
-				endif
-			repeat
-			
-			h += 1
-		repeat
-		
-		g_cell[baseCell] = push(g_cell[baseCell], newObj)
-		
-		/* There may be edge cases where children in a merged object don't get added
-		to cells if there are empty cells between the origin and the objects cells. */
-		
-		// Add list of what cells the object exists in.
-		array cellIdxList[len(cellIdx)]
-		var lastObjIdx
-		
-		for i = 0 to len(cellIdx) loop
-			lastObjIdx = len(g_cell[cellIdx[i]]) - 1
-			cellIdxList[i] = [ .cell = cellIdx[i], .idx = lastObjIdx ]
-		repeat
-		
-		array baseCellIdx[len(cellIdxList)]
-		g_cell[baseCell][baseIdx].cellIdx = baseCellIdx
-		
-		for i = 0 to len(cellIdxList) loop
-			g_cell[baseCell][baseIdx].cellIdx[i] = encodeCellIdx(cellIdxList[i].cell, cellIdxList[i].idx)
-		repeat
-		
-		var lightTypes = getGrpLightsTypes(newObj)
-		
-		if len(lightTypes) then
-			var objRef = [ .cell = cellIdx[0], .idx = len(g_cell[cellIdx[0]]) - 1 ]
-			
-			if !hideLightSprIfOutOfRange(newObj, g_cam.cell, g_cam.cellPos) then
-				g_lightIcons = push(g_lightIcons, objRef)
-			endif
-			
-			if contains(lightTypes, "world") or contains(lightTypes, "worldshadow") then
-				g_worldLights = push(g_worldLights, objRef)
-			endif
-		endif
-		
-		// Uncomment to view gridBit data when an object is placed
-		//debugGridBit3d(g_cell[cellIdx[0]][len(g_cell[cellIdx[0]]) - 1].gridBitList, 999)
-		//debugGridBit(g_cell[cellIdx[0]][len(g_cell[cellIdx[0]]) - 1].gridBitList, 0)
-		
-		g_dirtyMap = true
 	endif
 return newObj
 
@@ -8499,7 +8510,7 @@ return _lightRecords
 due to the deletion of a lower index object. */
 // +CORE LOADER
 function rebuildCellIdxList(_cell, _newIdx)
-	if !isMapObjRef(g_cell[_cell][_newIdx]) then
+	if !isMapObjRef(-1, g_cell[_cell][_newIdx]) then
 		var newCellIdx = encodeCellIdx(_cell, _newIdx)
 		
 		g_cell[_cell][_newIdx].cellIdx[0] = newCellIdx
@@ -8510,13 +8521,13 @@ function rebuildCellIdxList(_cell, _newIdx)
 		
 		for i = 1 to len(g_cell[_cell][_newIdx].cellIdx) loop
 			refCell = decodeCell(g_cell[_cell][_newIdx].cellIdx[i])
-			refIdx = decodeIdx(g_cell[_cell][_newIdx].cellIdx[i])
+			refIdx = decodeIdx(-1, g_cell[_cell][_newIdx].cellIdx[i])
 			g_cell[refCell][refIdx].cellIdx = newCellIdx
 		repeat
 	else
 		var newCellIdx = encodeCellIdx(_cell, _newIdx)
 		var baseCell = decodeCell(g_cell[_cell][_newIdx].cellIdx)
-		var baseIdx = decodeIdx(g_cell[_cell][_newIdx].cellIdx)
+		var baseIdx = decodeIdx(-1, g_cell[_cell][_newIdx].cellIdx)
 		
 		var i
 		for i = 0 to len(g_cell[baseCell][baseIdx].cellIdx) loop
@@ -8533,9 +8544,9 @@ function deleteMapObj(_obj)
 	var delCell
 	var delIdx
 	
-	if isMapObjRef(_obj) then
+	if isMapObjRef(-1, _obj) then
 		delCell = decodeCell(obj.cellIdx)
-		delIdx = decodeIdx(obj.cellIdx)
+		delIdx = decodeIdx(-1, obj.cellIdx)
 		_obj = getMapObjFromRef(g_cell[delCell][delIdx])
 	endif
 	
@@ -8548,7 +8559,7 @@ function deleteMapObj(_obj)
 	
 	for i = 0 to len(_obj.cellIdx) loop
 		delCell = decodeCell(_obj.cellIdx[i])
-		delIdx = decodeIdx(_obj.cellIdx[i])
+		decodeIdx(delIdx, _obj.cellIdx[i])
 		
 		g_cell[delCell] = remove(g_cell[delCell], delIdx)
 		
@@ -8556,17 +8567,27 @@ function deleteMapObj(_obj)
 			rebuildCellIdxList(delCell, j)
 		repeat
 	repeat
-	
-	//g_dirtyMap = true
 return void
 
-/* Removes an object from the map and initializes the editor for the removal. */
+/* Removes instantiated object models from the world without cleaning up the
+g_cell entries. Should only be used when clearing a map or in other cases
+where record sanitation doesn't matter. */
+// +CORE LOADER
+function fastDeleteMapObj(_obj)
+	if !isMapObjRef(-1, _obj) then
+		removeGroupObj(_obj)
+	endif
+return void
+
+/* Removes an object from the map and reinitializes the editor after the removal. */
 function edDeleteMapObj(_cell, _idx)
-	//debugPrint(0, [_cell, _idx, "len(g_cell)", len(g_cell), "len(g_cell[_cell])", len(g_cell[_cell])])
 	var obj = getMapObjFromRef(g_cell[_cell][_idx])
 	g_sel = adjustSelForRemovedObj(g_sel, _cell, 
 		_idx)
-		
+	//g_cur.lastColContext = adjustColContextForRemovedObj(g_cur.lastColContext, _cell, _idx)
+	//g_cam.lastColContext = adjustColContextForRemovedObj(g_cam.lastColContext, _cell, _idx)
+	//updateObjCollisions(_obj, ref _colCon, _pos, {0, 0, 1}, {0, 1, 0}, {1, 1, 1}, 1, true, false, true, false, 1, 0)
+	
 	deleteMapObj(obj)
 	
 	var i
@@ -8574,44 +8595,44 @@ function edDeleteMapObj(_cell, _idx)
 	var k
 	var l
 	var delCell
+	var cellOffset = 0
 	var delIdx
+	var removedCells = []
 	
 	for i = 0 to len(obj.cellIdx) loop
 		delCell = decodeCell(obj.cellIdx[i])
-		delIdx = decodeIdx(obj.cellIdx[i])
+		decodeIdx(delIdx, obj.cellIdx[i])
 		
 		removeWorldLightRecord(delCell, delIdx)
 		removeLightIconRecord(delCell, delIdx)
 		g_lightIcons = adjustLightRecordsForRemovedObj(delCell, delIdx, g_lightIcons)
 		g_worldLights = adjustLightRecordsForRemovedObj(delCell, delIdx, g_worldLights)
 		
-		
 		if len(g_cell[delCell]) <= g_cellObjStart then
 			for j = i + 1 to len(obj.cellIdx) loop
 				if decodeCell(obj.cellIdx[j]) > delCell then
-					obj.cellIdx[j] = encodeCellIdx(decodeCell(obj.cellIdx[j]) - 1, decodeIdx(obj.cellIdx[j]))
+					obj.cellIdx[j] = encodeCellIdx(decodeCell(obj.cellIdx[j]) - 1, decodeIdx(-1, obj.cellIdx[j]))
 				endif
 			repeat
-		
+			
 			g_cell = remove(g_cell, delCell)
-			// objs' cellIdx lists
+			removedCells = push(removedCells, delCell)
+			
 			for j = 0 to len(g_cell) loop
 				for k = g_cellObjStart to len(g_cell[j]) loop
 					var obj = g_cell[j][k]
 					
 					// Fix objects' cellIdx entries
-					if !isMapObjRef(obj) then
+					if !isMapObjRef(-1, obj) then
 						for l = 0 to len(obj.cellIdx) loop
 							if decodeCell(obj.cellIdx[l]) > delCell then
-								//debugPrint(0, ["old", decodeCell(obj.cellIdx[l]), decodeIdx(obj.cellIdx[l]), 
-								//	"new",decodeCell(obj.cellIdx[l]) - 1, decodeIdx(obj.cellIdx[l])])
-								obj.cellIdx[l] = encodeCellIdx(decodeCell(obj.cellIdx[l]) - 1, decodeIdx(obj.cellIdx[l]))
+								obj.cellIdx[l] = encodeCellIdx(decodeCell(obj.cellIdx[l]) - 1, decodeIdx(-1, obj.cellIdx[l]))
 								obj.gridBitList[l][0] -= 1
 							endif
 						repeat
 					else
 						if decodeCell(obj.cellIdx) > delCell then
-							obj.cellIdx = encodeCellIdx(decodeCell(obj.cellIdx) - 1, decodeIdx(obj.cellIdx))
+							obj.cellIdx = encodeCellIdx(decodeCell(obj.cellIdx) - 1, decodeIdx(-1, obj.cellIdx))
 						endif
 					endif
 					
@@ -8664,36 +8685,35 @@ function edDeleteMapObj(_cell, _idx)
 			else if g_cam.cell > delCell then
 				g_cam.cell -= 1
 			endif endif
-			// objRefs' cellIdx cells
-			// obj gridBitList
-			// cell adj list
-			// selection cells
-			// light icon cells
-			// world light cells
-			// cursor current cell/cellPos
-			// camera current cell/cellPos
 		endif
 	repeat
 	
+	updateCamCollisions(true)
+	updateCurContexts(true)
+	updateCurCellOutlinePos()
+	updateCamCellOutlinePos()
+	
 	g_dirtyMap = true
-return void
+return removedCells
 
 /* Removes instantiated elements of a light object. */
-// CORE LOADER
+// +CORE LOADER
 function deleteLightObj(_obj)
 	removeLight(_obj.light)
 	_obj.light = -1
+	
 	if g_editor then
 		removeSprite(_obj.spr)
 	endif
+	
 	_obj.spr = -1
 return _obj
 
+/* Resets the editor after the map has been cleared. */
 function initEdForClearedMap()
 return initEdForClearedMap(true)
 
 function initEdForClearedMap(_resetActiveObj)
-	//showLoadBox("Clearing current map ...", true, false, false)
 	initSel()
 	
 	for i = 0 to len(g_cellOutline) loop
@@ -8703,7 +8723,9 @@ function initEdForClearedMap(_resetActiveObj)
 	repeat
 	
 	initCam()
+	
 	if _resetActiveObj then removeActiveObj() endif
+	
 	initCur()
 	initCell()
 	g_lightIcons = []
@@ -8712,60 +8734,31 @@ function initEdForClearedMap(_resetActiveObj)
 	if _resetActiveObj then
 		createActiveObj(2, 0)
 	endif
-	
-	//removeLoadSpr()
 return void
 
-/* Deletes every object in the map and resets the editor state. */
-// CORE LOADER
+/* Deletes every object in the map. */
+// +CORE LOADER
 function clearMap()
-	//showLoadBox("Clearing current map ...", true, false, false)
-	//initSel()
-	
 	var i
 	var j
 	
 	for i = 0 to len(g_cell) loop
 		j = g_cellObjStart
 		while j < len(g_cell[i]) loop
-			if !isMapObjRef(g_cell[i][j]) then
-				//showLoadBox("Clearing current map ...", true, false, false)
-				
-				deleteMapObj(g_cell[i][j])
-				
-				j -= 1
-			endif
+			fastDeleteMapObj(g_cell[i][j])
+			
 			j += 1
 		repeat
 	repeat
 	
-	/*
-	for i = 0 to len(g_cellOutline) loop
-		if g_cellOutline[i].isValid then
-			removeCellOutlineObj(g_cellOutline[i])
-		endif
-	repeat
-	
-	initCam()
-	if _resetActiveObj then removeActiveObj() endif
-	initCur()
-	initCell()
-	g_lightIcons = []
-	g_worldLights = []
-	
-	if _resetActiveObj then
-		createActiveObj(2, 0)
-	endif
-	
-	removeLoadSpr()
-	*/
+	g_cell = []
 return void
 
 	// ----------------------------------------------------------------
 	// OBJECT RETRIEVAL
 
 /* If the object exists in the cell, gets its index. */
-// CORE LOADER
+// +CORE LOADER
 function getObjCopyFromCell(_obj, _cell, _skipCell)
 	_obj = getMapObjFromRef(_obj)
 	var found = false
@@ -8794,7 +8787,7 @@ function getObjCopyFromCell(_obj, _cell, _skipCell)
 return result
 
 /* Gets all cells/indices in which the object exists. */
-// CORE LOADER
+// +CORE LOADER
 function getAllObjCopies(_cell, _idx)
 	array cellIdx[0]
 	
@@ -8804,19 +8797,41 @@ function getAllObjCopies(_cell, _idx)
 		var i
 		for i = 0 to len(obj.cellIdx) loop
 			cellIdx = push(cellIdx, [ .cell = decodeCell(obj.cellIdx[i]), 
-				.idx = decodeIdx(obj.cellIdx[i]) ])
+				.idx = decodeIdx(-1, obj.cellIdx[i]) ])
 		repeat
 	endif
 return cellIdx
 
 // _refList elements are structs in the form [ .cell = INT, .idx = INT ]
-// CORE LOADER
-function getObjListFromCellIdxList(_refList)
-	array objList[len(_refList)]
-	
+// +CORE LOADER
+function getObjListFromCellIdxList(_refList, _filterDup)
+	//array objList[len(_refList)]
+	array objList[0]
+	var baseObj
+	var canAdd
+	var j
 	var i
+	
 	for i = 0 to len(_refList) loop
-		objList[i] = getMapObjFromRef(g_cell[_refList[i].cell][_refList[i].idx])
+		baseObj = getMapObjFromRef(g_cell[_refList[i].cell][_refList[i].idx])
+			
+		if _filterDup then
+			canAdd = true
+			
+			for j = 0 to len(objList) loop
+				if objList[j].cellIdx[0] == baseObj.cellIdx[0] then
+					canAdd = false
+					
+					break
+				endif
+			repeat
+			
+			if canAdd then
+				objList = push(objList, baseObj)
+			endif
+		else
+			objList = push(objList, baseObj)
+		endif
 	repeat
 return objList
 
@@ -8829,9 +8844,13 @@ don't have children (which are both always the case as of v1.0.00).
 cloneObjLightData() copies only the top layer; in most cases, 
 cloneObjLightDataRecursive() should be used. The former mostly exists as an
 element of the latter.*/
-function cloneObjLightData(_origObj, _destObj, _includeSpr)
-	if len(_destObj.lights) and len(_origObj.lights) 
-			and decodeBank(_origObj.bankIdx) >= 0 and decodeBank(_destObj.bankIdx) >= 0 then
+function cloneObjLightData(_origObj, ref _destObj, _includeSpr)
+	var destBank
+	decodeBank(destBank, _destObj.bankIdx)
+	var origBank
+	decodeBank(origBank, _origObj.bankIdx)
+	/*
+	if len(_destObj.lights) and len(_origObj.lights) and origBank >= 0 and destBank >= 0 then
 		if mapObjEquals(_destObj, _origObj) then
 			if _destObj.lights[0].name == _origObj.lights[0].name 
 					and _destObj.lights[0].pos == _origObj.lights[0].pos then
@@ -8849,30 +8868,67 @@ function cloneObjLightData(_origObj, _destObj, _includeSpr)
 			endif
 		endif
 	endif
+	*/
+	var continue = false
+	
+	if len(_destObj.lights) and len(_origObj.lights) then
+		if _destObj.lights[0].name == _origObj.lights[0].name 
+				and _destObj.lights[0].pos == _origObj.lights[0].pos then
+			continue = true
+		endif
+	endif
+	
+	if continue and origBank >= 0 and destBank >= 0 
+			and mapObjEquals(_destObj, _origObj)  then
+		_destObj.lights[0].fwd = _origObj.lights[0].fwd
+		_destObj.lights[0].brightness = _origObj.lights[0].brightness
+		_destObj.lights[0].col = _origObj.lights[0].col
+		_destObj.lights[0].res = _origObj.lights[0].res
+		_destObj.lights[0].spread = _origObj.lights[0].spread
+		_destObj.lights[0].range = _origObj.lights[0].range
+	else
+		continue = false
+	endif
+	
+	if continue and _includeSpr then
+		setGrpLightsSprCol(_destObj, _destObj.lights[0].col)
+	endif
 return _destObj
 
-function cloneObjLightDataRecursive(_origObj, _destObj)
+function cloneObjLightDataRecursive(_origObj, ref _destObj)
 return cloneObjLightDataRecursive(_origObj, _destObj, true)
 
-function cloneObjLightDataRecursive(_origObj, _destObj, _includeSpr)
-	_destObj = cloneObjLightData(_origObj, _destObj, _includeSpr)
+function cloneObjLightDataRecursive(_origObj, ref _destObj, _includeSpr)
+	cloneObjLightData(_origObj, _destObj, _includeSpr)
 	
+	var origBank
+	var destBank
+	var tempChild
 	var i
 	var j
 	
 	for i = 0 to len(_origObj.children) loop
-		if decodeBank(_origObj.children[i].bankIdx) >= 0 then
+		decodeBank(origBank, _origObj.children[i].bankIdx)
+		
+		//if origBank >= 0 then
 			for j = 0 to len(_destObj.children) loop
+				decodeBank(destBank, _destObj.children[j].bankIdx)
+				
 				if !len(_destObj.children[j].lights) and !len(_origObj.children[i].lights) 
-						and decodeBank(_destObj.children[j].bankIdx) >= 0 then
-					if mapObjEquals(_destObj.children[j], _origObj.children[i]) then
-						_destObj.children[j] = cloneObjLightDataRecursive(_origObj.children[i], _destObj.children[j], _includeSpr)
-					endif
-				else if len(_destObj.children[j].lights) and len(_origObj.children[i].lights) then
-					_destObj.children[j] = cloneObjLightData(_origObj.children[i], _destObj.children[j], _includeSpr)
-				endif endif
+						and origBank >= 0 and destBank >= 0 and mapObjEquals(_destObj.children[j], _origObj.children[i]) then
+					tempChild = _destObj.children[j]
+					cloneObjLightDataRecursive(_origObj.children[i], tempChild, _includeSpr)
+					_destObj.children[j] = tempChild
+					//endif
+				endif
+				//else if len(_destObj.children[j].lights) and len(_origObj.children[i].lights) and origBank >= 0 then
+				if len(_destObj.children[j].lights) and len(_origObj.children[i].lights) and origBank >= 0 then
+					tempChild = _destObj.children[j]
+					cloneObjLightData(_origObj.children[i], tempChild, _includeSpr)
+					_destObj.children[j] = tempChild
+				endif //endif
 			repeat
-		endif
+		//endif
 	repeat
 return _destObj
 
@@ -8890,31 +8946,35 @@ function unmergeObj(_obj)
 return unmerged
 
 /* Checks whether _obj is actually a reference to another object. */
-// CORE LOADER
-function isMapObjRef(_obj)
-	var isRef = false
+// +CORE LOADER
+function isMapObjRef(ref _in, _obj)
+	_in = false
 	
-	if !len(_obj.cellIdx) then
-		if _obj.cellIdx != -1 then
-			isRef = true
-		endif
+	var cellIdxLen = len(_obj.cellIdx)
+	var cellIdxStr = str(_obj.cellIdx) // Avoid multiple nested ifs to reduce stack size
+	
+	if !cellIdxLen and cellIdxStr != "-1" then
+		_in = true
 	endif
-return isRef
+return _in
 
 /* Returns the actual mapObj that a reference points to. */
-// CORE LOADER
+// +CORE LOADER
 function getMapObjFromRef(_ref)
 	var obj
 	
-	if isMapObjRef(_ref) then
-		obj = g_cell[decodeCell(_ref.cellIdx)][decodeIdx(_ref.cellIdx)]
+	if isMapObjRef(-1, _ref) then
+		var idx
+		decodeIdx(idx, _ref.cellIdx)
+		
+		obj = g_cell[decodeCell(_ref.cellIdx)][idx]
 	else
 		obj = _ref
 	endif
 return obj
 
 /* Returns the object's cell number. */
-// CORE LOADER
+// +CORE LOADER
 function getMapObjCell(_obj)
 	var cell
 	
@@ -8926,14 +8986,14 @@ function getMapObjCell(_obj)
 return cell
 
 /* Returns the object's index number. */
-// CORE LOADER
+// +CORE LOADER
 function getMapObjIdx(_obj)
 	var idx
 	
-	if isMapObjRef(_obj) then
-		idx = decodeIdx(_obj.cellIdx)
+	if isMapObjRef(-1, _obj) then
+		decodeIdx(idx, _obj.cellIdx)
 	else
-		idx = decodeIdx(_obj.cellIdx[0])
+		decodeIdx(idx, _obj.cellIdx[0])
 	endif
 return idx
 
@@ -8941,7 +9001,7 @@ return idx
 	// LIGHT OBJECT
 
 /* Returns an active light of the specifed name. */
-// CORE LOADER
+// +CORE LOADER
 function getActiveLightFromName(_name)
 	var newObj
 	
@@ -8964,8 +9024,16 @@ function getActiveLightFromName(_name)
 return newObj
 
 /* Default values for a light object. */
-// CORE LOADER
+// +CORE LOADER
 function initLightObj()
+	var alpha
+	
+	if g_editor then
+		alpha = g_sprAlpha
+	else
+		alpha = 1
+	endif
+	
 	lightObj l
 	l.light = -1
 	l.spr = -1
@@ -8973,7 +9041,7 @@ function initLightObj()
 	l.pos = {0, 0, 0}
 	l.fwd = {0, 0, 1}
 	l.brightness = 1
-	l.col = {1, 1, 1, g_sprAlpha}
+	l.col = {1, 1, 1, alpha}
 	l.spread = 1
 	l.res = 8
 	l.range = 100
@@ -8995,12 +9063,15 @@ return hidden
 sprite. Needs to be called after adding object(s) to ensure any new sprites are correctly
 dealt with. */
 function pruneLightIcons()
-	var i
-	for i = 0 to len(g_lightIcons) loop
+	var i = 0
+	while i < len(g_lightIcons) loop
 		if hideLightSprIfOutOfRange(g_cell[g_lightIcons[i].cell][g_lightIcons[i].idx], 
 				g_cam.cell, g_cam.cellPos) then
 			g_lightIcons = remove(g_lightIcons, i)
+			i -= 1
 		endif
+		
+		i += 1
 	repeat
 return void
 
@@ -9010,18 +9081,30 @@ object. This is needed because lights can't be auto-modified as part of an
 object group like objects can. DO NOT modify this function to return the object, 
 because these object modifications are only relevant in the context of this
 specific function and should be discarded when done. */
-// CORE LOADER
+// +CORE LOADER
+function setGrpLightsPos(_obj)
+	var fov
+	
+	if g_editor then
+		fov = g_cam.fov
+	else
+		fov = 70
+	endif
+return setGrpLightsPos(_obj, fov)
+
 function setGrpLightsPos(_obj, _fov)
 	var i
 	var light2dPos
 	
 	for i = 0 to len(_obj.lights) loop
 		_obj.lights[i] = applyGrpPos(_obj.lights[i], _obj)
-		light2dPos = worldPosToScreenPos(_obj.lights[i].pos, 
-			g_cam.fwd, g_cam.up, g_cam.pos, _fov)
+		
 		if g_editor then
+			edFunction(light2dPos, "worldPosToScreenPos", [ _obj.lights[i].pos, 
+				g_cam.fwd, g_cam.up, g_cam.pos, _fov ])
 			setSpriteLocation(_obj.lights[i].spr, light2dPos)
 		endif
+		
 		setLightPos(_obj.lights[i].light, _obj.lights[i].pos)
 	repeat
 	
@@ -9147,7 +9230,6 @@ function restoreGrpLightsSprCol(_obj)
 return void
 
 /* Sets brightness for all lights in a merged object. */
-// CORE LOADER
 function setGrpLightsBrightness(_obj, _br)
 return setGrpLightsBrightness(_obj, _br, [])
 
@@ -9179,7 +9261,6 @@ function offsetGrpLightsBrightness(_obj, _offset, _decimals)
 return _obj
 
 /* Sets brightess of all world lights in the map. */
-// CORE LOADER
 function setWorldLightsBrightness(_br, _writeBr)
 	var i
 	for i = 0 to len(g_worldLights) loop
@@ -9230,7 +9311,6 @@ function restoreWorldLightsBrightness()
 return void
 
 /* Sets spread for all lights in a merged object. */
-// CORE LOADER
 function setGrpLightsSpread(_obj, _spread)
 	var i
 	for i = 0 to len(_obj.lights) loop
@@ -9261,7 +9341,6 @@ function offsetGrpLightsSpread(_obj, _offset)
 return _obj
 
 /* Sets resolution for all lights in a merged object. */
-// CORE LOADER
 function setGrpLightsRes(_obj, _res)
 return setGrpLightsRes(_obj, _res, _obj)
 
@@ -9321,7 +9400,6 @@ function offsetGrpLightsRes(_obj, _offset, _objCopy)
 return _obj
 
 /* Sets range for all lights in a merged object. */
-// CORE LOADER
 function setGrpLightsRange(_obj, _range)
 return setGrpLightsRange(_obj, _range, _obj)
 
@@ -9375,7 +9453,6 @@ function offsetGrpLightsRange(_obj, _offset, _objCopy)
 return _obj
 
 /* Sets color for all lights in a merged object. */
-// CORE LOADER
 function setGrpLightsCol(_obj, _col)
 	var i
 	for i = 0 to len(_obj.lights) loop
@@ -9392,7 +9469,7 @@ function setGrpLightsCol(_obj, _col)
 return _obj
 
 /* Gets a list of the light types present in a merged object. */
-// CORE LOADER
+// +CORE LOADER
 function getGrpLightsTypes(_obj)
 return getGrpLightsTypes(_obj, [])
 
@@ -9410,7 +9487,6 @@ function getGrpLightsTypes(_obj, _types)
 return _types
 
 /* Check whether a merged object contains any lights. */
-// CORE LOADER
 function objContainsLight(_obj)
 return objContainsLight(_obj, false)
 
@@ -9426,7 +9502,6 @@ function objContainsLight(_obj, _result)
 return _result
 
 /* Removes a given world light from the global list of world lights. */
-// CORE LOADER
 function removeWorldLightRecord(_cell, _idx)
 	g_worldLights = removeLightRecord(g_worldLights, _cell, _idx)
 return void
@@ -9441,7 +9516,6 @@ function removeLightIconRecord(_cell, _idx)
 return void
 
 /* General-purpose removal of specialized light record list entries. */
-// CORE LOADER
 function removeLightRecord(_arr, _cell, _idx)
 	var i = 0
 	while i < len(_arr) loop
@@ -9490,9 +9564,9 @@ function createActiveObj(_bank, _idx, _scale, _fwd, _up, _useTemplate, _lightTem
 			g_cur.up = defObj.children[0].up
 			_scale = defObj.children[0].scale * _scale
 			g_cur.scale = _scale
-			_bank = decodeBank(g_activeObj.bankIdx)
-			_idx = decodeIdx(g_activeObj.bankIdx)
-			defObj = getObjDef(g_activeObj)
+			decodeBank(_bank, g_activeObj.bankIdx)
+			decodeIdx(_idx, g_activeObj.bankIdx)
+			getObjDef(defObj, g_activeObj)
 			
 			if !g_cur.isMerged then
 				g_cur.isMerged = true
@@ -9535,12 +9609,12 @@ function createActiveObj(_bank, _idx, _scale, _fwd, _up, _useTemplate, _lightTem
 		
 		g_cur.activeObj = g_activeObj
 		
-		var newGrp = placeGroupObj(g_activeObj, g_activeObj)
+		var newGrp = placeGrpObj(g_activeObj, g_activeObj)
 		g_activeObj.obj = newGrp.obj
 		g_activeObj.children = newGrp.children
 		g_activeObj.lights = newGrp.lights
 		
-		newGrp = placeGroupObj(g_cur.activeObj, g_cur.activeObj)
+		newGrp = placeGrpObj(g_cur.activeObj, g_cur.activeObj)
 		g_cur.activeObj.obj = newGrp.obj
 		g_cur.activeObj.children = newGrp.children
 		g_cur.activeObj.lights = newGrp.lights
@@ -9550,11 +9624,11 @@ function createActiveObj(_bank, _idx, _scale, _fwd, _up, _useTemplate, _lightTem
 	may be cases where we want to clone light data to the active object instead 
 	of using the defaults. */
 	if _useTemplate then
-		g_activeObj = cloneObjLightDataRecursive(_lightTemplateObj, g_activeObj)
+		cloneObjLightDataRecursive(_lightTemplateObj, g_activeObj)
 		g_cur.activeObj = cloneObjLightDataRecursive(_lightTemplateObj, g_cur.activeObj)
 	endif
 	
-	var maxDim = getMaxDim(getObjDef(g_activeObj).ext)
+	var maxDim = getMaxDim(getObjDef(-1, g_activeObj).ext, {1, 1, 1})
 	var hudScale = 1
 	if maxDim != 0 then
 		hudScale = 0.07 / maxDim
@@ -9565,7 +9639,7 @@ function createActiveObj(_bank, _idx, _scale, _fwd, _up, _useTemplate, _lightTem
 	updateActiveObjPos()
 	setObjectParent(g_activeObj.obj, g_viewport)
 	
-	g_cur.xyz = setXYZObjExt(g_cur.xyz, getObjDef(g_activeObj).ext, 0.5)
+	g_cur.xyz = setXYZObjExt(g_cur.xyz, getObjDef(-1, g_activeObj).ext, 0.5)
 	g_cur.scale = _scale
 	updateCurMode()
 	updateCurWidgets()
@@ -9590,7 +9664,8 @@ return void
 
 /* Returns the extent midpoint of the brush's corner visualization. */
 function getActiveObjMidpoint()
-	var def = getObjDef(g_activeObj)
+	var def
+	getObjDef(def, g_activeObj)
 	var ext = [
 		.lo = def.ext.lo * g_activeObj.scale.x * getUiFovScale(g_cam.fov),
 		.hi = def.ext.hi * g_activeObj.scale.x * getUiFovScale(g_cam.fov)
@@ -9662,7 +9737,8 @@ return void
 /* Per-frame updates to brush objects -- rotates corner visualization and
 flashes cursor. */
 function updateActive()
-	var def = getObjDef(g_activeObj)
+	var def
+	getObjDef(def, g_activeObj)
 	var scaledExt = [
 		.lo = def.ext.lo * g_activeObj.scale,
 		.hi = def.ext.hi * g_activeObj.scale
@@ -9753,7 +9829,10 @@ function getObjFromSel()
 	array obj[len(g_sel)]
 	var i
 	for i = 0 to len(g_sel) loop
-		obj[i] = getMapObjFromRef(g_cell[g_sel[i][0].cell][g_sel[i][0].idx])
+		if !isMapObjRef(-1, g_cell[g_sel[i][0].cell][g_sel[i][0].idx]) then
+			//obj[i] = getMapObjFromRef(g_cell[g_sel[i][0].cell][g_sel[i][0].idx])
+			obj[i] = g_cell[g_sel[i][0].cell][g_sel[i][0].idx]
+		endif
 	repeat
 return obj
 
@@ -9770,7 +9849,7 @@ function adjustSelForRemovedObj(_sel, _cell, _idx)
 
 	for h = 0 to len(baseObj.cellIdx) loop
 		refCell = decodeCell(baseObj.cellIdx[h])
-		refIdx = decodeIdx(baseObj.cellIdx[h])
+		decodeIdx(refIdx, baseObj.cellIdx[h])
 		
 		i = 0
 		while i < len(_sel) loop
@@ -9840,9 +9919,9 @@ function startMassSel(_c)
 			
 			for i = 0 to len(selObj) loop
 				objRef = g_cell[selObj[i].cell][selObj[i].idx]
-				if isMapObjRef(objRef) then
+				if isMapObjRef(-1, objRef) then
 					selObj[i].cell = decodeCell(objRef.cellIdx)
-					selObj[i].idx = decodeIdx(objRef.cellIdx)
+					selObj[i].idx = decodeIdx(-1, objRef.cellIdx)
 				endif
 				
 				g_cell[selObj[i].cell][selObj[i].idx].highlight = false
@@ -9869,9 +9948,9 @@ function startMassSel(_c)
 			
 			for i = 0 to len(selObj) loop
 				objRef = g_cell[selObj[i].cell][selObj[i].idx]
-				if isMapObjRef(objRef) then
+				if isMapObjRef(-1, objRef) then
 					selObj[i].cell = decodeCell(objRef.cellIdx)
-					selObj[i].idx = decodeIdx(objRef.cellIdx)
+					selObj[i].idx = decodeIdx(-1, objRef.cellIdx)
 				endif
 				
 				g_cell[selObj[i].cell][selObj[i].idx].highlight = false
@@ -10287,7 +10366,7 @@ function getMassSelContentsObj(_cellArr, _filterDup)
 	repeat
 return contents
 
-/* This evaluates everything in the mass selection area, Call it to deal
+/* This evaluates everything in the mass selection area. Call it to deal
 with situations where the cursor warps or moves by more than one cell, which
 would otherwise cause it to skip evaluation for those cells. */
 function warpMassSelPos(_prevCurPos)
@@ -10346,7 +10425,6 @@ return void
 	// OBJECT PROPERTIES
 
 /* Sets visibility for a merged object. */
-// CORE LOADER
 function setGroupVisibility(_obj, _visible)
 return setGroupVisibility(_obj, _visible, false)
 
@@ -10368,7 +10446,6 @@ function setGroupVisibility(_obj, _visible, _includeSpr)
 return void
 
 /* Sets material for a merged object. */
-// CORE LOADER
 function setGroupMaterial(_obj, _tint, _metal, _rough, _em)
 	if len(_obj.children) then
 		var i
@@ -10387,7 +10464,7 @@ return void
 /* Sets rotation for a merged object. _pos is needed in order for
 safeObjPointAt() to work; if the bug in objectPoinAt() is fixed in the
 future, _pos will no longer be needed. */
-// CORE LOADER
+// +CORE LOADER
 function setObjRot(_obj, _pos, _fwd, _up)
 	/* A straight up or down forward wrecks the algorithm, so fudge the 
 	vectors if necessary. */
@@ -10418,7 +10495,7 @@ return void
 
 /* objectPointAt() doesn't like straight up/down -- it will make the object
 disappear, which we fix by never using an exact up/down rotation. */
-// CORE LOADER
+// +CORE LOADER
 function safeObjectPointAt(_obj, _objPos, _dir)
 	var dif = _dir - _objPos
 	
@@ -10431,7 +10508,7 @@ return void
 
 /* Objects in a group use the group's local space for scale. This function 
 applies the group's scale modifier to a non-group object. */
-// CORE LOADER
+// +CORE LOADER
 function applyGrpScale(_grpScale, _childScale, _childFwd, _childUp)
 	var locR = cross(_childFwd, _childUp)
 	var deg = getAngleBetweenVecs({-1, 0, 0}, locR)
@@ -10457,7 +10534,7 @@ return _childScale * appliedScale
 /* Objects in a group use the group's local space for position, rotation, and
 scale. This function applies the group's postion/rotation/scale modifiers to 
 a non-group object. */
-// CORE LOADER
+// +CORE LOADER
 function applyGrpTransform(_obj, _grpObj)
 return applyGrpTransform(_obj, _grpObj, true)
 
@@ -10482,7 +10559,7 @@ return _obj
 
 /* Objects in a group use the group's local space for position. This 
 function applies the group's postion modifier to a non-group object. */
-// CORE LOADER
+// +CORE LOADER
 function applyGrpPos(_obj, _grpObj)
 return applyGrpPos(_obj, _grpObj, true)
 
@@ -10499,7 +10576,7 @@ return _obj
 
 /* Checks equality of two mapObjs. Does not consider equality among children or
 lights within the object. */
-// CORE LOADER
+// +CORE LOADER
 function mapObjEquals(_obj1, _obj2)
 	var eq = _obj1.fwd == _obj2.fwd 
 		and _obj1.up == _obj2.up 
@@ -10563,13 +10640,15 @@ return canScale
 /* Gets a list of all children in a merged object, including recursive children
 within children. Doesn't include self. */
 function getAllChildNames(_obj)
-return getAllChildNames(_obj, getMapObjName(_obj), [], false)
+	var mapObjName
+	getMapObjName(mapObjName, _obj)
+return getAllChildNames(_obj, mapObjName, [], false)
 
 function getAllChildNames(_obj, _parentName, _children, _parentIsDef)
 	var objName
 	
 	if !_parentIsDef then
-		objName = getMapObjName(_obj)
+		 getMapObjName(objName, _obj)
 	else
 		objName = _obj.name
 	endif
@@ -10592,12 +10671,14 @@ function getAllChildNamesInObjDef(_def)
 return getAllChildNames(_def, _def.name, [], true)
 
 /* Is the child present somewhere in the object's child hierarchy? */
-// CORE LOADER
 function objContains(_obj, _childName)
 return objContains(_obj, _childName, false)
 
 function objContains(_obj, _childName, _hit)
-	if getMapObjName(_obj) == _childName then
+	var mapObjName
+	getMapObjName(mapObjName, _obj)
+	
+	if mapObjName == _childName then
 		_hit = true
 	endif
 	
@@ -10614,7 +10695,7 @@ return _hit
 /* Applies highlight flash to appropriate objects. */
 function updateUnderCurObj()
 	if g_blink.needUpdate then
-		var curObj = getObjListFromCellIdxList(g_cur.lastColContext.collision)
+		var curObj = getObjListFromCellIdxList(g_cur.lastColContext.collision, true)
 		
 		if g_cur.mode == "masssel" then
 			curObj = insertArray(curObj, g_cur.massSel.contents, len(curObj))
@@ -10672,11 +10753,11 @@ return void
 /* To reduce variable count, bank and index numbers are stored together
 in a single variable. They each occupy 16 bits of a 32-bit int, with the
 16 MSBs representing the bank and the 16 LSBs representing the index. */
-// CORE LOADER
+// +CORE LOADER
 function encodeBankIdx(_bank, _idx)
 return bitFieldInsert(0, 0, 16, _idx) | bitFieldInsert(0, 16, 16, _bank)
 
-// CORE LOADER
+// +CORE LOADER
 function decodeBankIdx(_bankIdx)
 	result = [
 		.bank = bitFieldExtract(_bankIdx, 16, 16),
@@ -10684,34 +10765,36 @@ function decodeBankIdx(_bankIdx)
 	]
 return result
 
-// CORE LOADER
-function decodeBank(_bankIdx)
-return bitFieldExtract(_bankIdx, 16, 16)
+// +CORE LOADER
+function decodeBank(ref _in, _bankIdx)
+	_in = bitFieldExtract(_bankIdx, 16, 16)
+return _in
 
-// CORE LOADER
-function decodeIdx(_bankIdx)
-return bitFieldExtract(_bankIdx, 0, 16)
+// +CORE LOADER
+function decodeIdx(ref _in, _bankIdx)
+	_in = bitFieldExtract(_bankIdx, 0, 16)
+return _in
 
-// CORE LOADER
+// +CORE LOADER
 function getObjBankIdx(_obj)
 return decodeBankIdx(_obj.bankIdx)
 
-// CORE LOADER
+// +CORE LOADER
 function setObjBankIdx(_obj, _bank, _idx)
 	_obj.bankIdx = encodeBankIdx(_bank, _idx)
 return _obj
 
 /* Cell and index work the same way as bank/index but are separate functions
 both for clarity and in case the system changes. */
-// CORE LOADER
+// +CORE LOADER
 function decodeCell(_cellIdx)
 return bitFieldExtract(_cellIdx, 16, 16)
 
-// CORE LOADER
+// +CORE LOADER
 function encodeCellIdx(_cell, _idx)
 return bitFieldInsert(0, 0, 16, _idx) | bitFieldInsert(0, 16, 16, _cell)
 
-// CORE LOADER
+// +CORE LOADER
 function setMapObjRefCellIdx(_ref, _cell, _idx)
 	_ref.cellIdx = encodeCellIdx(_cell, _idx)
 return _ref
@@ -10719,24 +10802,52 @@ return _ref
 /* To reduce variable count, object names are stored only in the definition
 and not cached in the object instantiation. This function reads the object's 
 name out of the appropriate definition. */
-// CORE LOADER
-function getMapObjName(_obj)
-	if isMapObjRef(_obj) then
+// +CORE LOADER
+function getMapObjName(ref _in, _obj)
+	var isRef
+	isMapObjRef(isRef, _obj)
+	
+	if isRef then
 		_obj = getMapObjFromRef(_obj)
 	endif
 	
-	var name = ""
+	_in = ""
 	
 	/* During merged def loads, .bankIdx may temporarily contain a missing object's
 	name, so we screen this with len(). */
+	var bankIdxLen = len(_obj.bankIdx)
+	var bankIdxStr = str(_obj.bankIdx) // Avoid multiple nested ifs to reduce stack size
+	
+	if !bankIdxLen and bankIdxStr != "-1" then
+		var bank
+		decodeBank(bank, _obj.bankIdx)
+		var idx
+		decodeIdx(idx, _obj.bankIdx)
+		var objBank = g_obj[bank]
+		var nameObj = objBank[idx]
+		//_in = g_obj[bank][idx].name
+		_in = nameObj.name
+	else if bankIdxLen then
+		_in = _obj.bankIdx
+	endif endif
+	
+	/*
 	if !len(_obj.bankIdx) then
 		if _obj.bankIdx != -1 then
-			name = g_obj[decodeBank(_obj.bankIdx)][decodeIdx(_obj.bankIdx)].name
+			var bank
+			decodeBank(bank, _obj.bankIdx)
+			var idx
+			decodeIdx(idx, _obj.bankIdx)
+			var objBank = g_obj[bank]
+			var nameObj = objBank[idx]
+			//_in = g_obj[bank][idx].name
+			_in = nameObj.name
 		endif
 	else
-		name = _obj.bankIdx
+		_in = _obj.bankIdx
 	endif
-return name
+	*/
+return _in
 
 	// ----------------------------------------------------------------
 	// COMPOSITE OBJECTS	
@@ -11127,44 +11238,22 @@ return void
 
 /* Moves the cursor cell outline to the correct location. */
 function updateCurCellOutlinePos()
-	/*
-	if g_visibleCellOutlines then
-		if g_cellOutline[0].isValid then
-			setObjectPos(g_cellOutline[0].grp, g_cell[g_cur.cell][0])
-			
-			if g_cur.cell == g_cam.cell then
-				updateCamCellOutlinePos()
-			endif
-			
-			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
-		endif
-	endif
-	*/
-	if g_visibleCellOutlines then
-		if g_cellOutline[0].isValid then
-			if g_cur.cell >= 0 then
-				setObjectPos(g_cellOutline[0].grp, g_cell[g_cur.cell][0])
-				setCellOutlineCol(0, g_theme.inactiveCol)
-			else
-				setObjectPos(g_cellOutline[0].grp, getCellPosFromPos(g_cur.pos))
-				setCellOutlineCol(0, g_theme.bgCol)
-			endif
-			
-			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
-		endif
-	endif
-return void
+return updateCellOutlinePos(0, g_cur.cell, g_cur.pos)
 
 /* Moves the camera cell outline to the correct location. */
 function updateCamCellOutlinePos()
+return updateCellOutlinePos(1, g_cam.cell, g_cam.pos)
+
+/* Moves the given cell outline to the correct location. */
+function updateCellOutlinePos(_idx, _cell, _pos)
 	if g_visibleCellOutlines then
-		if g_cellOutline[1].isValid then
-			if g_cam.cell >= 0 then
-				setObjectPos(g_cellOutline[1].grp, g_cell[g_cam.cell][0])
-				setCellOutlineCol(1, g_theme.inactiveCol)
+		if g_cellOutline[_idx].isValid then
+			if _cell >= 0 then
+				setObjectPos(g_cellOutline[_idx].grp, g_cell[_cell][0])
+				setCellOutlineCol(_idx, g_theme.inactiveCol)
 			else
-				setObjectPos(g_cellOutline[1].grp, getCellPosFromPos(g_cam.pos))
-				setCellOutlineCol(1, g_theme.bgCol)
+				setObjectPos(g_cellOutline[_idx].grp, getCellPosFromPos(_pos))
+				setCellOutlineCol(_idx, g_theme.bgCol)
 			endif
 			
 			combineCellOutlines(g_cur.cellPos, g_cam.cellPos)
@@ -11382,12 +11471,11 @@ return state
 
 /* Adds a new cell in the map. The cell will snap to the closest appropriate
 position to _pos. */
-// CORE LOADER
+// +CORE LOADER
 function addCell(_pos)
 return addCell(_pos, [])
 
 function addCell(_pos, _savedAdj)
-	//debugPrint(0, [_pos, _savedAdj])
 	var idx = len(g_cell)
 	
 	g_cell = push(g_cell, [ 0, [] ]) // [ pos, adjacent cells ]
@@ -11411,30 +11499,9 @@ function addCell(_pos, _savedAdj)
 					getAdjIdxFromOffset(getOffsetFromAdjIdx(i) * -1), idx)
 			endif
 		repeat
-		
-		// If we're mass selecting, add cell to mass selection if in range
-		if g_cur.mode == "masssel" then
-			var selExt = [
-				.lo = {0, 0, 0},
-				.hi = g_cur.pos - g_cur.massSel.pos
-			]
-			if getExtIntersect(selExt, g_cur.massSel.pos, {1, 1, 1}, {0, 0, 1}, {0, 1, 0}, 
-					g_cellExt, g_cell[idx][0], {1, 1, 1}, {0, 0, 1}, {0, 1, 0}) then
-				g_cur.massSel.newlyAddedCell = idx
-			endif
-		endif
-		
-		if g_cam.cell < 0 then
-			if getCellPosFromPos(g_cam.pos) == g_cell[idx][0] then
-				g_cam.cell = idx
-				updateCamCellOutlinePos()
-			endif
-		endif
 	else
 		g_cell[idx][1] = _savedAdj
 	endif
-	
-
 return idx
 
 /* Gets the width/height/depth of a cell. */
@@ -11444,7 +11511,7 @@ return abs(g_cellExt.lo.x) + abs(g_cellExt.hi.x)
 
 /* Returns the adjacent indices that are on the sides of a cell in the given
 direction. */
-// CORE LOADER
+// +CORE LOADER
 function getAdjAffectedByMovement(_dir)
 	array adj[0]
 	
@@ -11590,7 +11657,7 @@ return adj
 
 /* Discovers which cells are adjacent to the cell that contains the given 
 position. */
-// CORE LOADER
+// +CORE LOADER
 function generateAdjacentCells(_pos)
 	array adj[27]
 	var cellW = getCellWidth()
@@ -11612,18 +11679,18 @@ function generateAdjacentCells(_pos)
 return adj
 
 /* Assigns a neighbor cell to a cell's adj array and update cell oulines. */
-// CORE LOADER
+// +CORE LOADER
 function updateAdjacentCell(_idx, _adjIdx, _neighborIdx)
 	g_cell[_idx][1][round(_adjIdx)] = _neighborIdx
 return void
 
 /* Gets a cell's array of adjacent cells. _pos allows for a fallback check if
 _midCell dosn't exist. */
-// CORE LOADER
+// +CORE LOADER
 function getAdj(_midCell, _pos)
 	array adj[27]
 	
-	if _midCell >= 0 then
+	if _midCell >= 0 and _midCell < len(g_cell) then
 		adj = g_cell[_midCell][1]
 	/* Fallback for when we are OOB and don't have a list of adjacents. Slower. */
 	else
@@ -11654,18 +11721,18 @@ function getAdj(_midCell, _pos)
 return adj
 
 /* Converts an adjacent index to a cell position relative to the middle cell. */
-// CORE LOADER
+// +CORE LOADER
 function getOffsetFromAdjIdx(_idx)
 return {_idx % 3 - 1, floor((_idx % 9) / 3) - 1, floor(_idx / 9) - 1}
 
 /* Returns an adjacent cell's position. */
-// CORE LOADER
+// +CORE LOADER
 function getCellPosFromAdjIdx(_midCell, _adjIdx)
 return g_cell[_midCell][0] + getOffsetFromAdjIdx(_adjIdx) * getCellWidth()
 
 /* Returns an array indices of cells whose midpoints are within the given
 range from the origin. */
-// CORE LOADER
+// +CORE LOADER
 function getCellsInRange(_origin, _range)
 	array cells[0]
 	
@@ -11678,7 +11745,7 @@ function getCellsInRange(_origin, _range)
 return cells
 
 /* Converts a position offset from a cell into an index for adjacent positions. */
-// CORE LOADER
+// +CORE LOADER
 function getAdjIdxFromOffset(_off)
 	var adjIdx
 	
@@ -11690,7 +11757,7 @@ function getAdjIdxFromOffset(_off)
 return adjIdx
 
 /* Returns whether the position is within the given cell. */
-// CORE LOADER
+// +CORE LOADER
 function isPosInCell(_pos, _cellIdx)
 	var isInCell = true
 	
@@ -11702,6 +11769,7 @@ function isPosInCell(_pos, _cellIdx)
 			if _pos[i] < cPos[i] + g_cellExt.lo[i] 
 					or _pos[i] >= cPos[i] + g_cellExt.hi[i] then
 				isInCell = false
+				
 				break
 			endif 
 		repeat
@@ -11712,7 +11780,7 @@ return isInCell
 
 /* Finds the position of the cell that does (or would) contain _pos. The
 cell itself does not necessarily exist. */
-// CORE LOADER
+// +CORE LOADER
 function getCellPosFromPos(_pos)
 	// Assume cell is an equal-sided cube
 	var cellW = getCellWidth()
@@ -11720,7 +11788,7 @@ function getCellPosFromPos(_pos)
 return cellPos
 
 /* Finds the cell that contains position _pos. */
-// CORE LOADER
+// +CORE LOADER
 function getCellIdxFromPos(_pos)
 	var idx = -1
 	
@@ -11735,7 +11803,7 @@ function getCellIdxFromPos(_pos)
 return idx
 
 /* Finds the cell whose midpoint is _pos. */
-// CORE LOADER
+// +CORE LOADER
 function getCellIdxFromCellPos(_pos)
 return getCellIdxFromCellPos(_pos, [])
 
@@ -11764,7 +11832,7 @@ return idx
 
 /* Snaps a direction's axis values to 1, 0, or -1. Conceptually equivalent to
 a unit vector for finding adjacent cells. */
-// CORE LOADER
+// +CORE LOADER
 function getCellDir(_dir)
 	var i
 	for i = 0 to 3 loop
@@ -11778,7 +11846,7 @@ function getCellDir(_dir)
 return _dir
 
 /* Checks if a position has moved into an adjacent cell. */
-// CORE LOADER
+// +CORE LOADER
 function updateCellContext(_oldCell, _oldCellPos, _newPos, _allowAddCell, _forceUpdate)
 	var result = [
 		.cell = _oldCell,
@@ -11813,10 +11881,10 @@ function updateCellContext(_oldCell, _oldCellPos, _newPos, _allowAddCell, _force
 return result
 
 /* Checks if the camera has moved into a different cell. */
-function updateCamCellContext()
+function updateCamCellContext(_forceUpdate)
 	var oldCell = g_cam.cell
 	var oldCellPos = g_cam.cellPos
-	var camCellResult = updateCellContext(g_cam.cell, g_cam.cellPos, g_cam.pos, false, false)
+	var camCellResult = updateCellContext(g_cam.cell, g_cam.cellPos, g_cam.pos, false, _forceUpdate)
 	
 	g_cam.cell = camCellResult.cell
 	g_cam.cellPos = camCellResult.cellPos
@@ -11828,9 +11896,10 @@ return void
 /* Gets a binary representation of an object's collision box within a cell. 
 The cell (5x5x5 dimensions) is divided into 125 units, with 0 at {0, 0, 0}
 and 124 at {5, 5, 5} (incrementing x first, then y, then z). */
-// CORE LOADER
+// +CORE LOADER
 function getObjCollisionBits(_obj, _objCell, _gridCellLen, _posOffset)
-	var def = getObjDef(_obj)
+	var def
+	getObjDef(def, _obj)
 	var objExt = def.ext
 	var cellHalfW = getCellWidth() / 2
 	var cellBounds = [
@@ -11888,9 +11957,14 @@ function getObjCollisionBits(_obj, _objCell, _gridCellLen, _posOffset)
 							bitInt[intIdx] = bitFieldInsert(bitInt[intIdx], gridIdx % g_intLen, 1, 1)
 						else
 							// DEBUG CONDITION: SHOULD NEVER OCCUR
-							debugPrint(0, ["ERROR: gridIdx for getObjCollisionBits() is -1",
-								"grid idx is " + gridIdx,
-								"cell is " + _objCell])
+							clear(black)
+							ink(white)
+							textSize(gheight() / 25)
+							printAt(1, 1, "ERROR: gridIdx for getObjCollisionBits() is -1" + chr(10) + 
+								"grid idx is " + gridIdx + chr(10) + 
+								"cell is " + _objCell)
+							update()
+							sleep(1)
 						endif
 					endif
 				endif
@@ -11904,7 +11978,7 @@ return bitInt
 /* Constructs collision bit data for an object and all its children within 
 the bounds of the given cell. Each parent within the hierarchy has a 
 gridBit comprised of the intersection of all of its children's gridBits. */
-// CORE LOADER
+// +CORE LOADER
 function getGrpCollisionBits(_obj, _cell)
 	var depth = 0
 	var childIdx = 0
@@ -11991,7 +12065,7 @@ return curObj
 
 /* Quickly finds an approximation of a collision box within a cell. Like
 getObjCollisionBits() but faster and less accurate. */
-// CORE LOADER
+// +CORE LOADER
 function getExtCollisionBitsFast(_pos, _ext, _scale, _fwd, _up)
 	var cellW = getCellWidth()
 	var cellPos = getCellPosFromPos(_pos)
@@ -12044,7 +12118,7 @@ return cells
 
 /* Gets bitmask for the collision positions on the edge of the cell in the 
 given dirction. */
-// CORE LOADER
+// +CORE LOADER
 function getAdjBitmask(_dir)
 	array mask[bitLenToInt(g_cellBitLen)]
 	mask[0] = 0
@@ -12086,7 +12160,7 @@ that can be copied along other axes to fill out the binary collision box
 representation.
 
 _axis: 0 = x, 1 = y, 2 = z */
-// CORE LOADER
+// +CORE LOADER
 function getAdjBitWidths(_axisMin, _axisMax, _cellW, _firstBitPos, _axis)
 	var bitFullW = ceil(_axisMax) - floor(_axisMin)
 	var axisUnit = pow(_cellW, _axis)
@@ -12113,7 +12187,7 @@ return adjW
 
 /* Finds the binary collision box bit index equivalent of a normal position. 
 Assumes the position is within the cell indicated by _cellPos. */
-// CORE LOADER
+// +CORE LOADER
 function getGridIdxFromPosInCell(_pos, _cellPos, _useCellPos)
 	var cellW = getCellWidth()
 	
@@ -12125,7 +12199,7 @@ function getGridIdxFromPosInCell(_pos, _cellPos, _useCellPos)
 return _pos.x + _pos.y * cellW + _pos.z * cellW * cellW
 
 /* Gives the regular position equivalent of a binary collision box bit index. */
-// CORE LOADER
+// +CORE LOADER
 function getPosFromGridIdx(_midCell, _idx)
 return getPosFromGridIdx(_midCell, 13, _idx)
 
@@ -12153,17 +12227,20 @@ return result
 
 /* Searches in an object's grid bit list and returns the data for a specific
 cell.  */
-// CORE LOADER
-function getObjGridBitForCell(_obj, _cell)
+// +CORE LOADER
+function getObjGridBitForCell(ref _in, _obj, _cell)
 	array gridBit[bitLenToInt(g_cellBitLen)]
+	_in = gridBit
 	
 	var i
 	for i = 0 to len(_obj.gridBitList) loop
 		if _obj.gridBitList[i][0] == _cell then
-			gridBit = _obj.gridBitList[i][1]
+			_in = _obj.gridBitList[i][1]
+			
+			break
 		endif
 	repeat
-return gridBit
+return _in
 
 /* Dumps raw gridBit data to screen for _dur seconds. */
 function debugGridBit(_bitArr, _dur)
@@ -12253,7 +12330,9 @@ function triggerMenuAction(_sel, _menu)
 						shouldClear = showSaveAs()
 					endif endif
 					if shouldClear then
+						showLoadBox("Clearing current map ...", true, false, false)
 						clearMap()
+						removeLoadSpr()
 						initEdForClearedMap()
 						initCellOutlines()
 						g_currentMapName = ""
@@ -12373,11 +12452,14 @@ This is the initial release, so it likely has bugs. Known issues:
 		
 		if strFind(_sel.action, "objaddselection") == 0 then
 			var idx = getActionIdx("objaddselection", _sel.action)
-			var objList = g_cur.lastColContext.collision
-			var selIdx = getSelIdx(objList[idx].cell, objList[idx].idx)
+			//var objList = g_cur.lastColContext.collision
+			var objList = getObjListFromCellIdxList(g_cur.lastColContext.collision, true)
+			//var selIdx = getSelIdx(objList[idx].cell, objList[idx].idx)
+			var selIdx = getSelIdx(objList[idx])
 			
 			if selIdx == -1 then
-				addObjToSel(objList[idx].cell, objList[idx].idx)
+				//addObjToSel(objList[idx].cell, objList[idx].idx)
+				addObjToSel(decodeCell(objList[idx].cellIdx[0]), decodeIdx(-1, objList[idx].cellIdx[0]))
 			else
 				g_sel = removeObjFromSel(g_sel, selIdx, true)
 			endif
@@ -12393,8 +12475,10 @@ This is the initial release, so it likely has bugs. Known issues:
 		
 		if strFind(_sel.action, "objdelete") == 0 then
 			var idx = getActionIdx("objdelete", _sel.action)
-			var obj = g_cur.lastColContext.collision
-			edDeleteMapObj(obj[idx].cell, obj[idx].idx)
+			//var obj = g_cur.lastColContext.collision
+			var obj = getObjListFromCellIdxList(g_cur.lastColContext.collision, true)
+			//edDeleteMapObj(obj[idx].cell, obj[idx].idx)
+			edDeleteMapObj(decodeCell(obj[idx].cellIdx[0]), decodeIdx(-1, obj[idx].cellIdx[0]))
 			
 			updateCurColContext(true)
 			// Rebuild menu to reflect deletion
@@ -12440,7 +12524,7 @@ This is the initial release, so it likely has bugs. Known issues:
 				edDeleteMapObj(g_sel[0][0].cell, g_sel[0][0].idx)
 			repeat
 			
-			updateCurColContext(true)
+			//updateCurColContext(true)
 			
 			// Rebuild menu to reflect deletions
 			var menuSel = getMenuSel(_menu).idxChain
@@ -13251,11 +13335,13 @@ function triggerMenuSelAction(_sel, _menu, _isSel)
 	while continue loop
 		if strFind(_sel.selAction, "highlight") != -1 then
 			var idx = getActionIdx("objhighlight", _sel.selAction)
-			var menuObjList
+			//var menuObjList
 			var i
+			var obj
 			
 			if _sel.action[:2] == "obj" then
-				menuObjList = g_cur.lastColContext.collision
+				//menuObjList = g_cur.lastColContext.collision
+				obj = getObjListFromCellIdxList(g_cur.lastColContext.collision, true)[idx]
 			else
 				array list[len(g_sel)]
 				
@@ -13263,20 +13349,29 @@ function triggerMenuSelAction(_sel, _menu, _isSel)
 					list[i] = g_sel[i][0]
 				repeat
 				
-				menuObjList = list
+				//menuObjList = list
+				//objList = getAllObjCopies(menuObjList[idx].cell, menuObjList[idx].idx)
+				//obj = getAllObjCopies(list[idx].cell, list[idx].idx)
+				obj = getMapObjFromRef(g_cell[list[idx].cell][list[idx].idx])
 			endif
 			
-			var objList = getAllObjCopies(menuObjList[idx].cell, menuObjList[idx].idx)
-			var objRef
+			//var objList = getAllObjCopies(menuObjList[idx].cell, menuObjList[idx].idx)
+			//var objRef
 			
-			for i = 0 to len(objList) loop
-				objRef = g_cell[objList[i].cell][objList[i].idx]
-				g_cell[getMapObjCell(objRef)][getMapObjIdx(objRef)].highlight = _isSel
-			repeat
+			//for i = 0 to len(objList) loop
+				//objRef = g_cell[objList[i].cell][objList[i].idx]
+				//objRef = objList[i]
+				g_cell[getMapObjCell(obj)][getMapObjIdx(obj)].highlight = _isSel
+				
+				if !_isSel then
+					//restoreDefaultObjCol(getMapObjFromRef(g_cell[menuObjList[idx].cell][menuObjList[idx].idx]))
+					restoreDefaultObjCol(obj)
+				endif
+			//repeat
 			
-			if !_isSel then
-				restoreDefaultObjCol(getMapObjFromRef(g_cell[menuObjList[idx].cell][menuObjList[idx].idx]))
-			endif
+			//if !_isSel then
+				//restoreDefaultObjCol(getMapObjFromRef(g_cell[menuObjList[idx].cell][menuObjList[idx].idx]))
+			//endif
 			
 			g_blink.needUpdate = true
 			break
@@ -13837,7 +13932,7 @@ function clearObjMenuGrid(_objMenu)
 		for j = 0 to len(_objMenu.obj[i]) loop
 			if len(_objMenu.obj[i][j].children) or len(_objMenu.obj[i][j].lights) then
 				_objMenu.obj[i][j] = removeGroupObj(_objMenu.obj[i][j])
-				if decodeBank(_objMenu.obj[i][j].bankIdx) > g_lightBank then
+				if decodeBank(-1, _objMenu.obj[i][j].bankIdx) > g_lightBank then
 					removeSprite(_objMenu.obj[i][j].mergedSpr)
 				endif
 			else
@@ -13908,6 +14003,8 @@ function updateObjMenuGrid(_startRow, _rowLen, _colLen, _xInc, _yInc, _bank, _fo
 	var screenR
 	var deg
 	
+	initMergedImg()
+	
 	for i = 0 to _rowLen loop
 		if _startRow * _rowLen + i > len(g_obj[_bank]) - 1 then
  			break
@@ -13924,7 +14021,7 @@ function updateObjMenuGrid(_startRow, _rowLen, _colLen, _xInc, _yInc, _bank, _fo
 			scrPos = startPos + {_xInc * i, _yInc * j}
 			pos = screenPosToWorldPos(scrPos, 1, g_cam.fwd, g_cam.up, g_cam.pos, _fov)
 			lightSpr = -1
-			maxDim = getMaxDim(g_obj[_bank][objIdx].ext)
+			maxDim = getMaxDim(g_obj[_bank][objIdx].ext, {1, 1, 1})
 			scale = (0.13 / maxDim) * getUiFovScale(_fov)
 			camBackwards = axisRotVecBy(g_cam.fwd, g_cam.up, 180)
 			rotDeg = getAngleBetweenVecs({0, 0, 1}, g_cam.fwd)
@@ -13939,7 +14036,7 @@ function updateObjMenuGrid(_startRow, _rowLen, _colLen, _xInc, _yInc, _bank, _fo
 				template.scale = {1, 1, 1} * scale
 				template.pos = pos
 				
-				objResult = placeGroupObj(template, template, _fov)
+				objResult = placeGrpObj(template, template, _fov)
 				objModel = objResult.obj
 				objChildren = objResult.children
 				objLights = objResult.lights
@@ -14175,7 +14272,8 @@ return _objMenu
 function moveObjMenuSel(_objMenu, _dir)
 	var newPos = _objMenu.selPos + _dir
 	var newIdx = getObjMenuIdxFromPos(_objMenu, newPos)
-	var objBank = decodeBank(_objMenu.obj[_objMenu.selPos.x][_objMenu.selPos.y].bankIdx)
+	var objBank
+	decodeBank(objBank, _objMenu.obj[_objMenu.selPos.x][_objMenu.selPos.y].bankIdx)
 	
 	// If we're in the grid area
 	loop if _dir == {1, 0} 
@@ -14207,7 +14305,7 @@ function moveObjMenuSel(_objMenu, _dir)
 		_objMenu = clearObjMenuGrid(_objMenu)
 		_objMenu.obj = updateObjMenuGrid(_objMenu.startRow, _objMenu.rowLen, 
 			_objMenu.colLen, _objMenu.posIncX, _objMenu.posIncY, 
-			decodeBank(_objMenu.obj[_objMenu.selPos.x][_objMenu.selPos.y].bankIdx), 
+			decodeBank(-1, _objMenu.obj[_objMenu.selPos.x][_objMenu.selPos.y].bankIdx), 
 			_objMenu.fov)
 		
 		if newIdx >= len(g_obj[objBank]) then
@@ -14257,7 +14355,7 @@ function updateObjMenu(_objMenu)
 					g_mergedObjMenu, true, _objMenu.txtSize, 1)
 				_objMenu.focusPane = 2
 			else
-				replaceActiveObj(decodeBank(selObj.bankIdx), decodeIdx(selObj.bankIdx))
+				replaceActiveObj(decodeBank(-1, selObj.bankIdx), decodeIdx(-1, selObj.bankIdx))
 				needClose = true
 			endif
 		else if !c.a then
@@ -14610,7 +14708,7 @@ function createCurMenu(_midCell, _pos, _idxChainSel)
 	
 	var curMenu = -1
 	var objRefList = g_cur.lastColContext.collision
-	var objList = getObjListFromCellIdxList(objRefList)
+	var objList = getObjListFromCellIdxList(objRefList, true)
 	array bulletList[len(objList)]
 	
 	if len(objList) > 0 then
@@ -14635,7 +14733,7 @@ function createCurMenu(_midCell, _pos, _idxChainSel)
 			sActions[i] = "objaddselection" + i
 			dActions[i] = "objdelete" + i
 			selActions[i] = "objhighlight" + i
-			objList[i] = getMapObjName(objList[i])
+			objList[i] = getMapObjName(-1, objList[i])
 			
 			if getSelIdx(objRefList[i].cell, objRefList[i].idx) != -1 then
 				bulletList[i] = "* "
@@ -14696,7 +14794,7 @@ function createSelMenu(_idxChainSel)
 		for i = 0 to len(objList) loop
 			actions[i] = "selremove" + i
 			selActions[i] = "selhighlight" + i
-			objList[i] = getMapObjName(objList[i])
+			objList[i] = getMapObjName(-1, objList[i])
 		repeat
 		
 		array mergeActions[len(g_obj) - 1]
@@ -14897,6 +14995,13 @@ function handleInput()
 		rotateCur(g_c)
 		scaleCur(g_c)
 		startMassSel(g_c)
+		/*
+		if g_c.b then
+			g_cam.lastColContext = updateObjCollisions(g_cam.collider, g_cam.lastColContext, 
+				g_cam.pos, g_cam.fwd, g_cam.up, g_cam.lastColContext.scale + 0.01, 
+				g_cam.collisionMode, false, false, true, true, 1, 2)
+		endif
+		*/
 		advanceCurMode(g_c)
 		drawStatusBar()
 		break endif
@@ -15191,7 +15296,7 @@ function applyKb(_c, _kbBind)
 return result
 
 // ----------------------------------------------------------------
-// STATE UPDATES
+// SYSTEM
 
 /* Applies a new theme. */
 function setTheme(_name, _reinit)
@@ -15207,15 +15312,32 @@ function setTheme(_name, _reinit)
 	if _reinit then
 		setSpriteColor(g_cur.spr, {g_theme.bgSelCol.r, g_theme.bgSelCol.g, g_theme.bgSelCol.b, g_sprAlpha})
 		
-		for i = 0 to len(g_cellOutline) loop
-			if i == 0 then
-				setCellOutlineCol(i, g_theme.inactiveCol)
-			else
-				setCellOutlineCol(i, g_theme.bgCol)
-			endif
-		repeat
+		updateCurCellOutlinePos()
+		updateCamCellOutlinePos()
 	endif
 return void
+
+/* This function is a wrapper for editor-only functions that is left blank in
+the Core Loader, which allows non-editor calls where the target function 
+doesn't exist to silently fail instead of throwing a FUZE error. */
+// +CORE LOADER
+function edFunction(ref _in, _funcName, _argArr)
+	if _funcName == "promptObjDefRelink" then
+		promptObjDefRelink(_in, _argArr[0], _argArr[1])
+	endif
+	
+	loop if _funcName == "setGrpLightsSprScale" then
+		_in = setGrpLightsSprScale(_argArr[0], _argArr[1])
+		break endif
+	if _funcName == "worldPosToScreenPos" then
+		_in = worldPosToScreenPos(_argArr[0], _argArr[1], _argArr[2], 
+			_argArr[3], _argArr[4])
+		break endif
+	if _funcName == "getGrpLightsTypes" then
+		_in = getGrpLightsTypes(_argArr[0])
+		break
+	endif break repeat
+return _in
 
 	// ----------------------------------------------------------------
 	// CAMERA
@@ -15288,23 +15410,44 @@ function updateCam(_c)
 		break
 	endif break repeat
 	
+	var hasNorm = false
+	/*
+	if len(g_cam.lastColContext.normal) and g_cam.lastColContext.colThisFrame then
+		if g_cam.lastColContext.normal[0] != {0, 0, 0} then
+			hasNorm = true
+			
+			g_cam.pos = projectVecToPlane(g_cam.pos, g_cam.lastColContext.objPos + g_cam.lastColContext.normal[0] * 0.1, 
+				g_cam.lastColContext.normal[0])
+			
+			setObjectPos(g_cam.collider, g_cam.pos)
+			objectPointAt(g_cam.collider, g_cam.pos + g_cam.fwd)
+		endif
+	endif
+	*/
+	/*
+	if !hasNorm then
+		setObjectPos(g_cam.collider, g_cam.pos)
+		objectPointAt(g_cam.collider, g_cam.pos + g_cam.fwd)
+	endif
+	*/
+	//updateCamCellContext(false)
+	
+	if g_cam.collisionMode then
+		//if g_cam.cell < 0 or g_cam.pos == oldPos then
+		//	g_cam.lastColContext.collision = []
+		//else
+			//updateCamColContext(false)
+		updateCamCollisions(false)
+	else
+		g_cam.lastColContext.collision = []
+		updateCamCellContext(false)
+	endif
+	
+	g_cam.delta = g_cam.pos - oldPos
 	setObjectPos(g_cam.collider, g_cam.pos)
 	objectPointAt(g_cam.collider, g_cam.pos + g_cam.fwd)
 	
-	updateCamCellContext()
-	g_cam.delta = g_cam.pos - oldPos
-	
-	if g_cam.collisionMode then
-		if g_cam.cell < 0 or g_cam.pos == oldPos then
-			g_cam.lastColContext.collision = []
-		else
-			updateCamColContext(false)
-		endif
-	else
-		g_cam.lastColContext.collision = []
-	endif
-	
-	if !len(g_cam.lastColContext.collision) then
+	if !len(g_cam.lastColContext.collision) or !g_cam.lastColContext.colThisFrame then
 		if g_cam.cellPos != oldCellPos then
 			var lightShowAdj = getAdjAffectedByMovement(getCellDir(g_cam.cellPos - oldCellPos))
 			var lightHideAdj = getAdjAffectedByMovement(getCellDir(oldCellPos - g_cam.cellPos))
@@ -15334,18 +15477,30 @@ function updateCam(_c)
 			updateCamCellOutlinePos()
 		endif
 	else
+		
 		g_cam.pos = oldPos
+		//g_cam.pos = g_cam.lastColContext.objPos
 		g_cam.fwd = oldFwd
 		g_cam.up = oldUp
 		g_cam.delta = {0, 0, 0}
 		g_cam.cell = oldCell
 		g_cam.cellPos = oldCellPos
+		
+		/*
+		g_cam.pos = g_cam.lastColContext.objPos
+		g_cam.fwd = g_cam.lastColContext.fwd
+		g_cam.up = g_cam.lastColContext.up
+		g_cam.delta = g_cam.pos - oldPos
+		g_cam.cell = g_cam.lastColContext.cell
+		g_cam.cellPos = g_cam.lastColContext.cellPos
+		*/
 	endif
 	
 	g_cam.dir = g_cam.pos + g_cam.fwd
 	setCamera(g_cam.pos, g_cam.dir)
 	setObjectPos(g_cam.collider, g_cam.pos)
-	objectPointAt(g_cam.collider, g_cam.pos + g_cam.fwd)
+	//objectPointAt(g_cam.collider, g_cam.pos + g_cam.fwd)
+	setObjRot(g_cam.collider, g_cam.fwd, g_cam.up, g_cam.pos)
 	
 	if g_cam.pos != oldPos or g_cam.fwd != oldFwd then
 		updateViewport()
@@ -15369,14 +15524,298 @@ return void
 	// ----------------------------------------------------------------
 	// COLLISIONS
 
-/* Recalculates collision bits and finds current collisions. 
-_collisionMode can be 1 (bounding box), 2 (1 raycast), or 3 (5 raycasts)*/
 // CORE LOADER
-function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale, _collider, _getAllCollisions, _collisionMode, _prevPos)
+function getNormal(ref _in, _obj, _cell, _colCon, _range, _castPos, _planeOrig, _castFwd, _castUp)
+	//var timer = time()
+	var castCount = 3
+	_castFwd = normalize(_castFwd)
+	_castUp = normalize(_castUp)
+	var validResult = false
+	var scores = []
+	var hiScoreIdx = 0
+	
+	var r = normalize(cross(_castFwd, _castUp))
+	var offset = [
+		_castUp * _range,
+		r * _range,
+		r * -_range + _castUp * -_range
+	]
+	
+	var hits = []
+	var norms = []
+	var i
+	for i = 0 to castCount loop
+		var newHit
+		raycastGrp(newHit, _obj, _cell, _castPos + offset[i], _castFwd, 
+			_colCon.gridBit[13], false, float_max)
+		
+		//debugLine(_castPos + offset[i], _castPos + offset[i] + _castFwd * 0.2, 0.005, 5, blue)
+		if newHit.hit < float_max then
+			hits = push(hits, _castPos + offset[i] + _castFwd * newHit.hit)
+		endif
+	repeat
+	
+	if len(hits) > 1 then // Need at least two hits + _planeOrigin to find a plane
+		array newNorms[len(hits)] 
+		norms = newNorms
+		
+		for i = 0 to len(hits) loop
+			 norms[i] = cross(hits[(i + 1) % len(hits)] - _planeOrig, hits[i] - _planeOrig)
+			
+			if norms[i] == {0, 0, 0} then
+				norms[i] = {0, 1, 0}
+			else
+				norms[i] = normalize(norms[i])
+			endif
+		repeat
+		
+		for i = 0 to len(norms) loop
+			if !len(scores) then
+				scores = push(scores, [ .pos = norms[i], .score = 1 ])
+			else
+				var j
+				for j = 0 to len(scores) loop
+					if equals(norms[i], scores[j].pos, 0.001) then
+						scores[j].score += 1
+						
+						break
+					else
+						scores = push(scores, [ .pos = norms[i], .score = 1 ])
+					endif
+				repeat
+			endif
+		repeat
+		
+		if len(scores) then
+			for i = 1 to len(scores) loop
+				if scores[i].score > scores[hiScoreIdx].score then
+					hiScoreIdx = i
+				endif
+			repeat
+			
+			validResult = true
+		endif
+	endif
+	
+	if validResult then
+		_in = scores[hiScoreIdx].pos
+	else
+		_in = {0, 0, 0}
+		//debugPrint(0, [result, _castPos, _planeOrig, _castFwd, _castUp, len(hits), len(norms)])
+	endif
+	//debugPrint(0.001,[time() - timer])
+return _in
+
+/* Call this when an object is first created to initialize its collision
+context. */
+// +CORE LOADER
+function initColContext(_colCon, _obj, _pos, _fwd, _up, _scale, _mode)
+	var ext = getObjExtent(_obj, _pos, _scale, _fwd, _up)
+	_colCon.gridBit = getExtCollisionBitsFast(
+		floorVec(_pos) + 0.5,
+		ext, 
+		_scale, 
+		_fwd, 
+		_up
+	)
+	_colCon.cell = -1
+	_colCon.cellPos = {float_max, float_max, float_max}
+	_colCon.objPos = _pos
+	_colCon.colPos = {float_max, float_max, float_max}
+	_colCon.scale = _scale
+	_colCon.colScale = {float_max, float_max, float_max}
+	_colCon.fwd = _fwd
+	_colCon.colFwd = {float_max, float_max, float_max}
+	_colCon.up = _up
+	_colCon.colUp = {float_max, float_max, float_max}
+	_colCon.ext = ext
+	_colCon.objList = []
+	_colCon.collision = []
+	_colCon.normal = []
+	_colCon.colThisFrame = false
+	_colCon.allCollisions = true
+	_colCon.collisionMode = _mode
+return _colCon
+
+/* This is the main collision check function. When given an object and a new position, it calculates whether 
+placing the object in that position causes a collision and positions the object to account for that collision.
+
+_obj (object reference): The object whose position, rotation, or scale has changed.
+_colCon (colContext): The object's collision context, which stores data about the object's position and collisions.
+_pos (vector): The new position of _obj.
+_fwd (vector): _obj's new foward vector.
+_up (vector): _obj's new up vector.
+_scale (vector): _obj's new scale.
+_collisionMode (int): Algorithm for collision checks (1: bounding box; 2: simple raycast; 3: cuboid raycast; 
+	4: spheroid raycast).
+_forceUpdate (bool): Whether to check collisions even if the cached data says not to.
+_getAllCollisions (bool): Whether to consider all current collisions instead of only the first one found.
+_handleTransformChange (bool): Whether the function should apply the transform changes given as arguments (strongly 
+	recommended to be true; if false, some parts of the collision context will need to be updated manually).
+_getNormal (bool): Whether to redirect _obj based on the obstacle's shape rather than simply stopping _obj in place.
+_frict (float): Velocity factor for _obj's redirected motion. (1: velocity transfers proportionally; >1: velocity 
+	increases; <1 but >0: velocity reduces; 0: no velocity -- same as setting _getNormal to false; <0: velocity inverts).
+_normRecurLimit (int): Number of times _obj's motion can be redirected in a single call. (1: _obj can only redirect off 
+	of one surface at a time and additional surfaces will block the motion; >1: _obj can redirect off of multiple surfaces 
+	at a time).
+*/
+// CORE LOADER
+function updateObjCollisions(_obj, ref _colCon, _pos)
+return updateObjCollisions(_obj, _colCon, _pos, _colCon.fwd, _colCon.up, _colCon.scale, _colCon.collisionMode, false, false, true, false, 0, 0)
+
+function updateObjCollisions(_obj, ref _colCon, _pos, _fwd)
+return updateObjCollisions(_obj, _colCon, _pos, _fwd, _colCon.up, _colCon.scale, _colCon.collisionMode, false, false, true, false, 0, 0)
+
+function updateObjCollisions(_obj, ref _colCon, _pos, _fwd, _up)
+return updateObjCollisions(_obj, _colCon, _pos, _fwd, _up, _colCon.scale, _colCon.collisionMode, false, false, true, false, 0, 0)
+
+function updateObjCollisions(_obj, ref _colCon, _pos, _fwd, _up, _scale)
+return updateObjCollisions(_obj, _colCon, _pos, _fwd, _up, _scale, _colCon.collisionMode, false, false, true, false, 0, 0)
+
+function updateObjCollisions(_obj, ref _colCon, _pos, _fwd, _up, _scale, _collisionMode)
+return updateObjCollisions(_obj, _colCon, _pos, _fwd, _up, _scale, _collisionMode, false, false, true, false, 0, 0)
+
+function updateObjCollisions(_obj, ref _colCon, _pos, _fwd, _up, _scale, _collisionMode, _forceUpdate)
+return updateObjCollisions(_obj, _colCon, _pos, _fwd, _up, _scale, _collisionMode, _forceUpdate, false, true, false, 0, 0)
+
+function updateObjCollisions(_obj, ref _colCon, _pos, _fwd, _up, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _handleTransformChange, _getNormal, _frict, _normRecurLimit)
+	//var timer = time()
+	var prevObjPos = _colCon.objPos
+	var prevScale = _colCon.scale
+	var prevFwd = _colCon.fwd
+	var prevUp = _colCon.up
+	var eqRes = 0.05
+	var checkCol = true
+	
+	if _normRecurLimit == 2 
+			and !_forceUpdate 
+			and len(_colCon.collision) 
+			and equals(_pos, _colCon.colPos, eqRes)
+			//and equals(_fwd, _colCon.colFwd, eqRes)
+			//and equals(_up, _colCon.colUp, eqRes)
+			//and equals(_scale, _colCon.colScale, eqRes)
+			and _fwd == _colCon.colFwd
+			and _up == _colCon.colUp
+			and _scale == _colCon.colScale
+			then
+		_colCon.colThisFrame = true
+		checkCol = false
+		//debugPrint(0.0001, ["_colCon.colThisFrame = true"])
+	else if _normRecurLimit == 2 
+			and !_forceUpdate 
+			//and equals(_pos, _colCon.objPos, eqRes)
+			and _pos == _colCon.objPos
+			and _fwd == _colCon.colFwd
+			and _up == _colCon.colUp
+			and _scale == _colCon.colScale
+			then
+		_colCon.colThisFrame = false
+		checkCol = false
+		//debugPrint(0.0001, ["_colCon.colThisFrame = false"])
+	endif endif
+	
+	if checkCol then
+		printAt(0, 4, "UPDATING COLLISIONS " + str(_pos != _colCon.colPos))
+		if _handleTransformChange then
+			if _pos != _colCon.objPos then
+				setObjectPos(_obj, _pos)
+			endif
+			
+			if _fwd != _colCon.fwd or _up != _colCon.up then
+				setObjRot(_obj, _pos, _fwd, _up)
+			endif
+			
+			if _scale != _colCon.scale then
+				setObjectScale(_obj, _scale)
+			endif
+		endif
+		
+		if _forceUpdate then
+			_colCon.objList = []
+		endif
+		
+		var cellResult = updateCellContext(_colCon.cell, _colCon.cellPos, _pos, false, _forceUpdate)
+		updateColContext(_colCon, cellResult.cell, _pos, _fwd, _up, 
+			_colCon.ext, _scale, _obj, _getAllCollisions, _collisionMode, prevObjPos, _getNormal)
+		
+		_colCon.cellPos = cellResult.cellPos
+		if _normRecurLimit == 2 then
+			_colCon.colPos = _pos
+		endif
+		_colCon.colScale = _scale
+		_colCon.colFwd = _fwd
+		_colCon.colUp = _up
+		
+		if _handleTransformChange and _colCon.colThisFrame then
+			var hasNorm = false
+			
+			if len(_colCon.normal) and _getNormal and _frict and _normRecurLimit then
+				if _colCon.normal[0] != {0, 0, 0} then
+					hasNorm = true
+					var moveObj = _pos != prevObjPos
+					
+					if _colCon.colDepth[0] < float_max then
+						_pos = _pos + _colCon.normal[0] * _colCon.colDepth[0]
+					else // Backup in case we couldn't find the surface normal/collision depth
+						_pos = _pos - _colCon.delta
+					endif
+					
+					// If _frict != 1, rotational deflection can't occur at the same time as positional deflection
+					if moveObj then
+						_pos = prevObjPos + (_pos - prevObjPos) * _frict
+					endif
+					
+					//setObjectPos(_obj, prevObjPos)
+					_colCon.objPos = prevObjPos
+					_colCon.scale = prevScale
+					_colCon.fwd = prevFwd
+					_colCon.up = prevUp
+					
+					var normBuf = _colCon.normal
+					var argColCon = _colCon
+					//_colCon = updateObjCollisions(_obj, _colCon, _pos, _fwd, _up, _scale, _collisionMode, _forceUpdate, 
+					updateObjCollisions(_obj, argColCon, _pos, _fwd, _up, _scale, _collisionMode, _forceUpdate, 
+						_getAllCollisions, _handleTransformChange, _getNormal, _frict, _normRecurLimit - 1)
+					_colCon = argColCon
+					_colCon.normal = normBuf
+				endif
+			endif
+			
+			if !hasNorm then
+				setObjectPos(_obj, prevObjPos)
+				_colCon.objPos = prevObjPos
+				_colCon.scale = prevScale
+				_colCon.fwd = prevFwd
+				_colCon.up = prevUp
+				
+				if _fwd != _colCon.fwd or _up != _colCon.up then
+					setObjRot(_obj, _pos, prevFwd, prevUp)
+				endif
+				
+				if _scale != _colCon.scale then
+					setObjectScale(_obj, prevScale)
+				endif
+			endif
+		else
+			_colCon.objPos = _pos
+			_colCon.scale = _scale
+			_colCon.fwd = _fwd
+			_colCon.up = _up
+		endif
+	endif
+	/*if _normRecurLimit == 2 and g_frame % 10 == 0 then
+		debugPrint(0.001,[time() - timer])
+	endif*/
+return _colCon
+
+/* Recalculates collision bits and finds current collisions. 
+_collisionMode can be 1 (bounding box), 2 (single raycast), 3 (cuboid raycasts), 
+or 4 (spheroid raycasts) */
+// CORE LOADER
+function updateColContext(ref _lastColContext, _cell, _pos, _fwd, _up, _ext, _scale, _collider, _getAllCollisions, _collisionMode, _prevPos, _getNormal)
 	var timer = time()
 	_lastColContext.collision = []
 	var cellPos = getCellPosFromPos(_pos)
-	var gridTimer = time()
 	var gridPos = getGridIdxFromPosInCell(_pos, cellPos, true)
 	var oldGridBit = _lastColContext.gridBit
 	_lastColContext.gridBit = getExtCollisionBitsFast(
@@ -15386,9 +15825,10 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 		_fwd, 
 		_up
 	)
+	_lastColContext.colThisFrame = false
 	var i
 	
-	if _cell == _lastColContext.cell 
+	if _cell == _lastColContext.cell and len(_lastColContext.objList)
 			and oldGridBit[13][0] == _lastColContext.gridBit[13][0]
 			and oldGridBit[13][1] == _lastColContext.gridBit[13][1] then
 		var obj
@@ -15399,20 +15839,13 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 			hit = mergedObjIntersect(obj, _collider)
 			
 			if hit then
-				if _getAllCollisions then
-					_lastColContext.collision = push(_lastColContext.collision, _lastColContext.objList[i])
-					if i > 0 then
-						_lastColContext.objList = insert(_lastColContext.objList, _lastColContext.objList[i], 0)
-						_lastColContext.objList = remove(_lastColContext.objList, i + 1)
-					endif
-				else
-					_lastColContext.collision = [ _lastColContext.objList[i] ]
-					if i > 0 then
-						_lastColContext.objList = insert(_lastColContext.objList, _lastColContext.objList[i], 0)
-						_lastColContext.objList = remove(_lastColContext.objList, i + 1)
-					endif
-					
-					break
+				_lastColContext.collision = push(_lastColContext.collision, _lastColContext.objList[i])
+				_lastColContext.normal = push(_lastColContext.normal, {0, 0, 0})
+				_lastColContext.colThisFrame = true
+				
+				if i > 0 then
+					_lastColContext.objList = insert(_lastColContext.objList, _lastColContext.objList[i], 0)
+					_lastColContext.objList = remove(_lastColContext.objList, i + 1)
 				endif
 			endif
 		repeat
@@ -15427,29 +15860,25 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 		var hit
 		var curAdj = getAdj(_cell, _pos)
 		
-		//for h = 0 to len(g_cell[_cell][1]) loop
-		//	curCell = g_cell[_cell][1][h]
 		for h = 0 to len(curAdj) loop
 			curCell = curAdj[h]
 			if curCell >= 0 and (_lastColContext.gridBit[h][0]
 					or _lastColContext.gridBit[h][1]) then
 				for i = g_cellObjStart to len(g_cell[curCell]) loop
 					obj = getMapObjFromRef(g_cell[curCell][i])
-					objGridBit = getObjGridBitForCell(obj, curCell)
+					getObjGridBitForCell(objGridBit, obj, curCell)
+					
 					if _lastColContext.gridBit[h][0] & objGridBit[0]
 							or _lastColContext.gridBit[h][1] & objGridBit[1] then
 						hit = mergedObjIntersect(obj, _collider)
 						
 						if hit then
-							_lastColContext.objList = insert(_lastColContext.objList, [ .cell = curCell, .idx = i ], 0)
-							
-							if _getAllCollisions then
-								_lastColContext.collision = push(_lastColContext.collision, [ .cell = curCell, .idx = i ])
-							else
-								_lastColContext.collision = [ [ .cell = curCell, .idx = i ] ]
-							endif
+							_lastColContext.objList = insert(_lastColContext.objList, [ .cell = curCell, .idx = i, .adj = h ], 0)
+							_lastColContext.collision = push(_lastColContext.collision, [ .cell = curCell, .idx = i, .adj = h ])
+							_lastColContext.normal = push(_lastColContext.normal, {0, 0, 0})
+							_lastColContext.colThisFrame = true
 						else
-							_lastColContext.objList = push(_lastColContext.objList, [ .cell = curCell, .idx = i ])
+							_lastColContext.objList = push(_lastColContext.objList, [ .cell = curCell, .idx = i, .adj = h ])
 						endif
 					endif
 				repeat
@@ -15457,55 +15886,134 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 		repeat
 	endif
 	
-	if _collisionMode >= 2 then
-		var relCastDir = worldVecToLocalVec(_pos - _prevPos, _fwd, _up, {0, 0, 0})
-		relCastDir = getCellDir(relCastDir)
+	if _collisionMode >= 2 and len(_lastColContext.collision) then
+		var colPool = _lastColContext.collision
+		_lastColContext.collision = []
+		_lastColContext.normal = []
+		_lastColContext.colDepth = []
+		_lastColContext.colThisFrame = false
 		
-		if len(_lastColContext.collision) then
-			/* Scale gets increased because raycast collisions just feel different
-			 from bounding box collisions. */
-			var extScale = _scale * 2
-			var colPool = _lastColContext.collision
-			_lastColContext.collision = []
-			var dir = _pos - _prevPos
+		var castPoint = getExtPoints(_ext, _scale, _fwd, _up)
+		var center = (castPoint[0] + castPoint[1] + castPoint[2] + castPoint[3] 
+			+ castPoint[4] + castPoint[5] + castPoint[6] + castPoint[7]) / 8
+		
+		var prevCastPoint = getExtPoints(_ext, _lastColContext.scale, 
+			_lastColContext.fwd, _lastColContext.up)
+		var prevCenter = (prevCastPoint[0] + prevCastPoint[1] + prevCastPoint[2] 
+			+ prevCastPoint[3] + prevCastPoint[4] + prevCastPoint[5] + prevCastPoint[6] 
+			+ prevCastPoint[7]) / 8
+		
+		var dir = normalize((center + _pos) - (prevCenter + _prevPos))
+		_lastColContext.delta = (center + _pos) - (prevCenter + _prevPos)
+		
+		if _collisionMode == 2 then // Simple raycast
+			var castObj
+			var cast
+			var maxDim = getMaxDim(_ext, _scale) / 2
 			
-			if _collisionMode == 2 then // Simple raycast
-				var offset = -0.5 * normalize(dir) * distance(_ext.lo * extScale, {_ext.lo.x, _ext.lo.y, _ext.hi.z} * extScale)
+			for i = 0 to len(colPool) loop
+				castObj = getMapObjFromRef(g_cell[colPool[i].cell][colPool[i].idx])
+				raycastGrp(cast, castObj, colPool[i].cell, _prevPos, dir, _lastColContext.gridBit[13],
+					false, float_max)
+				cast = cast.hit
 				
-				var castObj
-				var cast
-				
-				for i = 0 to len(colPool) loop
-					castObj = getMapObjFromRef(g_cell[colPool[i].cell][colPool[i].idx])
-					cast = raycastGrp(castObj, colPool[i].cell, _prevPos, dir, _lastColContext.gridBit[13]).hit
+				if cast <= maxDim then
+					_lastColContext.collision = [ colPool[i] ]
+					_lastColContext.colThisFrame = true
+					_lastColContext.normal = [ {0, 0, 0} ]
+					_lastColContext.colDepth = [ float_max ]
 					
-					if cast <= 3.5 then
-						_lastColContext.collision = [ colPool[i] ]
+					break
+				endif
+			repeat
+		else // Complex raycast
+			timer = time()
+			var prevCastDat = getCollisionCastDat(_collisionMode, _prevPos, _lastColContext.fwd, _lastColContext.up, 
+				_lastColContext.scale, _ext, prevCastPoint, prevCenter)
+			var castObj
+			var cast
+			var castDat = getCollisionCastDat(_collisionMode, _pos, _fwd, _up, _scale, _ext, castPoint, center)
+			var castOrder = [ 0, 1, 2, 3, 4 ]
+			var castResult
+			complexRaycast(castResult, _lastColContext, colPool, castDat, castOrder, _getAllCollisions)
+			var closestCol = castResult.bestCol
+			_lastColContext = castResult.colCon
 						
-						break
-					endif
-				repeat
-			else // Complex raycast
-				var extPoints = getExtPoints(_ext, extScale, _fwd, _up)
-				var castObj
-				array cast[5]
+			if _getNormal and closestCol.cast < float_max then
+				_lastColContext.delta = closestCol.castDat[0] - prevCastDat[closestCol.castDatIdx][0]
+				dir = normalize(_lastColContext.delta)
+				castObj = getMapObjFromRef(g_cell[closestCol.obj.cell][closestCol.obj.idx])
+				var castHit = closestCol.castDat[0] + closestCol.cast * closestCol.castDat[1]
+				var normCastPos
 				
-				for i = 0 to len(colPool) loop
-					castObj = getMapObjFromRef(g_cell[colPool[i].cell][colPool[i].idx])
+				if closestCol.cast <= closestCol.castDat[2] / 2 then
+					normCastPos = castHit - closestCol.castDat[0] + prevCastDat[closestCol.castDatIdx][0]
+				else
+					var invCastStart = closestCol.castDat[0] + closestCol.castDat[1] * closestCol.castDat[2]
+					var prevInvCastStart = prevCastDat[closestCol.castDatIdx][0] + prevCastDat[closestCol.castDatIdx][1] 
+						* prevCastDat[closestCol.castDatIdx][2]
+					normCastPos = castHit - invCastStart + prevInvCastStart
+					dir = normalize(invCastStart - prevInvCastStart)
+					_lastColContext.delta = invCastStart - prevInvCastStart
+				endif
+				
+				var rotAxis = cross({0, 0, 1}, dir)
+				
+				if rotAxis == {0, 0, 0} then
+					rotAxis = {0, 1, 0}
+				else
+					rotAxis = normalize(rotAxis)
+				endif
+				
+				var normCastUp = axisRotVecBy({0, 1, 0}, rotAxis, getAngleBetweenVecs({0, 0, 1}, dir))
+				var normCast
+				var colPoolCell = -1
+				var safeFloorCheck = true
+				
+				if safeFloorCheck then
+					var floorResult
+					raycastSafeFloor(floorResult, _lastColContext, colPool, dir, normCastPos)
+					normCast = floorResult.normCast
 					
-					cast[0] = raycastGrp(castObj, colPool[i].cell, _prevPos + extPoints[0], dir, _lastColContext.gridBit[13]).hit
-					cast[1] = raycastGrp(castObj, colPool[i].cell, _prevPos + extPoints[1], dir, _lastColContext.gridBit[13]).hit
-					cast[2] = raycastGrp(castObj, colPool[i].cell, _prevPos + extPoints[2], dir, _lastColContext.gridBit[13]).hit
-					cast[3] = raycastGrp(castObj, colPool[i].cell, _prevPos + extPoints[3], dir, _lastColContext.gridBit[13]).hit
-					cast[4] = raycastGrp(castObj, colPool[i].cell, _prevPos 
-						+ (extPoints[0] + extPoints[1] + extPoints[2] + extPoints[3]) / 4, dir, _lastColContext.gridBit[13]).hit
-					
-					if cast[0] <= 3.5 or cast[1] <= 3.5 or cast[2] <= 3.5 or cast[3] <= 3.5 or cast[4] <= 3.5 then
-						_lastColContext.collision = [ colPool[i] ]
-						
-						break
+					if floorResult.colPoolCell >= 0 then
+						colPoolCell = floorResult.colPoolCell
+					else
+						colPoolCell = closestCol.obj.cell
 					endif
-				repeat
+				else
+					colPoolCell = closestCol.obj.cell
+					var curObj = getMapObjFromRef(g_cell[closestCol.obj.cell][closestCol.obj.idx])
+					raycastGrp(normCast, curObj, colPoolCell, normCastPos, 
+						dir, _lastColContext.gridBit[13], true, float_max)
+					normCast = normCast.hit
+				endif
+				
+				//debugLine(normCastPos, castPoint, 0.005, 5, blue)
+				var norm
+				var normCastHit
+				
+				_lastColContext.dir = dir
+				
+				if normCast >= float_max then
+					getNormal(norm, castObj, closestCol.obj.cell, _lastColContext, 0.00001, normCastPos, prevCastDat[closestCol.castDatIdx][0] + prevCastDat[closestCol.castDatIdx][1], 
+						dir, normCastUp)
+					//debugLine(closestCol.castDat[0], closestCol.castDat[0] + closestCol.castDat[1] * closestCol.castDat[2], 0.005, 5, lime)
+					_lastColContext.colDepth = push(_lastColContext.colDepth, float_max)
+				else
+					normCastHit = normCastPos + dir * normCast
+					
+					getNormal(norm, castObj, colPoolCell, _lastColContext, 0.00001, normCastPos, normCastHit, 
+						dir, normCastUp)
+					var castPointProj = projectVecToPlane(normCastPos, normCastHit, norm)
+					var pointDepth = distance(castPointProj, normCastPos)
+					
+					_lastColContext.colDepth = push(_lastColContext.colDepth, pointDepth)
+				endif
+				
+				//debugLine(castHit, castHit + norm * 0.25, 0.005, 5, orange)
+				_lastColContext.normal = push(_lastColContext.normal, norm)
+			else
+				_lastColContext.normal = push(_lastColContext.normal, {0, 0, 0})
 			endif
 		endif
 	endif
@@ -15513,34 +16021,207 @@ function updateColContext(_lastColContext, _cell, _pos, _fwd, _up, _ext, _scale,
 	_lastColContext.allCollisions = _getAllCollisions
 return _lastColContext
 
-/* updateColContext() as applied to cursor. */
-function updateCurColContext(_flush)
-	if _flush then
-		g_cur.lastColContext = flushColContext(g_cur.lastColContext)
+function getCollisionCastDat(_type, _pos, _fwd, _up, _scale, _ext, _extPoints, _center)
+	var r = cross(_fwd, _up)
+	var zDir = _center + normalize(_fwd) * _scale.z
+	var xDir = _center + normalize(r * -1) * _scale.x
+	var yDir = _center + normalize(_up) * _scale.y
+	var castDat
+	
+	if _type == 3 then
+		// Spheroid -- diagonal casts towards the extent corners are shorter vs. cuboid
+		var avgDim = (distance(_extPoints[0], _extPoints[1]) / 2 + distance(_extPoints[0], _extPoints[2]) / 2 + distance(_extPoints[0], _extPoints[4]) / 2) / 3
+		castDat = [ // position, direction, distance
+			//[ _pos + yDir, normalize(yDir - _center) * -1, abs(_ext.hi.y - _ext.lo.y) * _scale.y ], 
+			[ _pos + zDir, normalize(zDir - _center) * -1, abs(_ext.hi.z - _ext.lo.z) * _scale.z ], 
+			//[ _pos + xDir, normalize(xDir - _center) * -1, abs(_ext.hi.x - _ext.lo.x) * _scale.x ],
+			[ _pos + _center + (normalize(_extPoints[4] - _center) * avgDim), normalize(_extPoints[4] - _center) * -1, avgDim * 2 ], 
+			[ _pos + _center + (normalize(_extPoints[5] - _center) * avgDim), normalize(_extPoints[5] - _center) * -1, avgDim * 2 ], 
+			[ _pos + _center + (normalize(_extPoints[6] - _center) * avgDim), normalize(_extPoints[6] - _center) * -1, avgDim * 2 ], 
+			[ _pos + _center + (normalize(_extPoints[7] - _center) * avgDim), normalize(_extPoints[7] - _center) * -1, avgDim * 2 ]
+		]
+	else
+		// Cuboid
+		var rad = distance(_center, _ext.hi * _scale)
+		var crossDist = (rad * 2)
+		castDat = [ // position, direction, distance
+			//[ _pos + yDir, normalize(yDir - _center) * -1, abs(_ext.hi.y - _ext.lo.y) * _scale.y ], 
+			[ _pos + zDir, normalize(zDir - _center) * -1, abs(_ext.hi.z - _ext.lo.z) * _scale.z ], 
+			//[ _pos + xDir, normalize(xDir - _center) * -1, abs(_ext.hi.x - _ext.lo.x) * _scale.x ],
+			[ _pos + _extPoints[4], normalize(_extPoints[4] - _center) * -1, crossDist ], 
+			[ _pos + _extPoints[5], normalize(_extPoints[5] - _center) * -1, crossDist ], 
+			[ _pos + _extPoints[6], normalize(_extPoints[6] - _center) * -1, crossDist ], 
+			[ _pos + _extPoints[7], normalize(_extPoints[7] - _center) * -1, crossDist ]
+		]
 	endif
 	
-	g_cur.lastColContext = updateColContext(g_cur.lastColContext, g_cur.cell, 
-		floorVec(g_cur.pos) + 0.5, {0, 0, 1}, {0, 1, 0}, g_cur.ext, {1, 1, 1}, g_cur.collider, true, 0, {0, 0, 0})
+	/* Shift the raycast starts and ends inward slightly to avoid borderline collision cases that cause problems
+	with normal-based position redirects. */
+	for i = 0 to len(castDat) loop
+		castDat[i][0] = castDat[i][0] + castDat[i][1] * 0.1
+		castDat[i][2] -= 0.2
+	repeat
+return castDat
+
+function complexRaycast(ref _in, _colCon, _colPool, _castDat, _castOrder, _getAllCollisions)
+	var bestCol = [ .obj = -1, .cast = float_max, .castDat = -1 ]
+	var castObj
+	var cast
+	var i
+	var j
+	
+	for i = 0 to len(_colPool) loop
+		castObj = getMapObjFromRef(g_cell[_colPool[i].cell][_colPool[i].idx])
+		
+		for j = 0 to len(_castOrder) loop
+			raycastGrp(cast, castObj, _colPool[i].cell, _castDat[_castOrder[j]][0], _castDat[_castOrder[j]][1], 
+				_colCon.gridBit[_colPool[i].adj], false, float_max)
+			cast = cast.hit
+			
+			if cast <= _castDat[_castOrder[j]][2] then
+				_colCon.collision = push(_colCon.collision, _colPool[i])
+					_colCon.colThisFrame = true
+				
+				if bestCol.cast >= float_max or cast < bestCol.cast then
+					bestCol = [ .obj = _colPool[i], .cast = cast, .castDat = _castDat[_castOrder[j]], .castDatIdx = _castOrder[j], .colPoolIdx = i ]
+				endif
+				
+				break
+			endif
+		repeat
+					
+		if !_getAllCollisions and len(_colCon.collision) then
+			break
+		endif
+	repeat
+	
+	_in = [
+		.colCon = _colCon,
+		.bestCol = bestCol
+	]
+return _in
+
+/* raycastSafeFloor will check normal-finding raycasts against all possible collision targets which
+ensures any raycast that should be blocked by a nearby object will be blocked, returning the 
+blocking surface's normal instead. The practical impact of this is that floor tiles will always 
+return the correct upward normal instead of sometimes returning the non-upward normal from the 
+tile's edge (because the edge is covered by the adjacent tiles which block the raycast). Using 
+safeFloorCheck involves additional raycasts and hits the CPU, of course. */
+function raycastSafeFloor(ref _in, _colCon, _colPool, _dir, _normCastPos)
+	_in = [
+		.normCast = float_max,
+		.colPoolCell = -1
+	]
+	var curObj
+	var newCast
+	var i
+	for i = 0 to len(_colPool) loop
+		curObj = getMapObjFromRef(g_cell[_colPool[i].cell][_colPool[i].idx])
+		raycastGrp(newCast, curObj, _colPool[i].cell, _normCastPos, 
+			_dir, _colCon.gridBit[13], true, float_max)
+		newCast = newCast.hit
+		
+		if newCast < _in.normCast then
+			_in.normCast = newCast
+			_in.colPoolCell = _colPool[i].cell
+		endif
+	repeat
+return _in
+
+function raycastSafeFloor2(_colCon, _colPool, _dir, _normCastPos, _bestCol)
+	var result = [
+		.normCast = distance(_normCastPos, _bestCol.castDat[0] + _bestCol.castDat[1] * _bestCol.cast),
+		.colPoolCell = _colPool[_bestCol.colPoolIdx].cell
+	]
+	var curObj
+	var newCast
+	var i
+	var dist = distance(_normCastPos, _bestCol.castDat[0] + _bestCol.castDat[1] * _bestCol.cast)
+	
+	for i = 0 to len(_colPool) loop
+		//if i != _bestCol.colPoolIdx then
+			curObj = getMapObjFromRef(g_cell[_colPool[i].cell][_colPool[i].idx])
+			raycastGrp(newCast, curObj, _colPool[i].cell, _normCastPos, 
+				_dir, [], false, float_max)
+			newCast = newCast.hit
+			
+			if newCast < result.normCast then
+				result.normCast = newCast
+				result.colPoolCell = _colPool[i].cell
+			endif
+		/*else
+			var origHitPos = _bestCol.castDat[0] + _bestCol.castDat[1] * _bestCol.cast
+			var cast = raycastGrp(getMapObjFromRef(g_cell[_colPool[i].cell][_colPool[i].idx]), _colPool[i].cell, 
+				_normCastPos, _dir, []).hit
+			
+			if !equals(dist, cast, 0.0001) then
+				debugPrint(0.0001, [distance(_normCastPos, origHitPos), cast])
+			endif
+			if cast == float_max then cast = 100 endif
+			
+			debugLine(_bestCol.castDat[0], origHitPos, 0.003, 25, purple)
+			debugLine(_normCastPos, _normCastPos + _dir * cast, 0.002, 25, lime)
+		endif*/
+	repeat
+	if result.normCast == float_max then result.normCast = 100 endif
+	debugLine(_normCastPos, _normCastPos + _dir * result.normCast, 0.002, 25, pink)
+	//debugPrint(0.0001, [distance(_normCastPos, _bestCol.castDat[0] + _bestCol.castDat[1] * _bestCol.cast), result.normCast])
+return result
+
+/* updateColContext() as applied to cursor. */
+// DEPRECATED
+function updateCurColContext(_flush)
+	if _flush then
+		//g_cur.lastColContext = flushColContext(g_cur.lastColContext)
+	endif
+	
+	updateColContext(g_cur.lastColContext, g_cur.cell, 
+		floorVec(g_cur.pos) + 0.5, {0, 0, 1}, {0, 1, 0}, g_cur.ext, {1, 1, 1}, g_cur.collider, true, 0, {0, 0, 0}, false)
 return void
 
 /* updateColContext() as applied to camera. */
+// DEPRECATED
 function updateCamColContext(_flush)
 	if _flush then
-		g_cam.lastColContext = flushColContext(g_cam.lastColContext)
+		//g_cam.lastColContext = flushColContext(g_cam.lastColContext)
 	endif
 	
-	g_cam.lastColContext = updateColContext(g_cam.lastColContext, g_cam.cell, 
+	updateColContext(g_cam.lastColContext, g_cam.cell, 
 		g_cam.pos, g_cam.fwd, g_cam.up, g_cam.ext, {1, 1, 1}, g_cam.collider, 
-		true, g_cam.collisionMode, g_cam.pos - g_cam.delta)
+		true, g_cam.collisionMode, g_cam.pos - g_cam.delta, false)
+return void
+
+function updateCamCollisions(_flush)
+	printAt(0, 7, "update cam col")
+	var colCon = g_cam.lastColContext
+	//g_cam.lastColContext = updateObjCollisions(g_cam.collider, g_cam.lastColContext, 
+	updateObjCollisions(g_cam.collider, colCon, 
+		g_cam.pos, g_cam.fwd, g_cam.up, g_cam.lastColContext.scale, 
+		g_cam.collisionMode, _flush, false, true, true, 1, 2)
+	//g_cam.collisionMode, false, false, true, false, 1, 2)
+	g_cam.lastColContext = colCon
+	g_cam.cell = g_cam.lastColContext.cell
+	g_cam.cellPos = g_cam.lastColContext.cellPos
+	g_cam.pos = g_cam.lastColContext.objPos
+return void
+
+function updateCurCollisions(_flush)
+	var colCon = g_cur.lastColContext
+	updateObjCollisions(g_cur.collider, colCon, floorVec(g_cur.pos) + 0.5, {0, 0, 1}, 
+		{0, 1, 0}, {0.5, 0.5, 0,5}, 1, _flush, true, false, false, 0, 0)
+	g_cur.lastColContext = colCon
 return void
 
 /* A collision context should be flushed when there is a chance that its cached
 data is inaccurate. For example: when an object referenced in _colContext.objList 
 has been deleted. */
-// CORE LOADER
+// +CORE LOADER
 function flushColContext(_colContext)
 	array gridBit[27][bitLenToInt(pow(getCellWidth(), 3))]
 	
+	//colContext newColContext
+	//_colContext = newColContext
+	///*
 	_colContext = [
 		.cell = -1,
 		.gridBit = gridBit,
@@ -15548,10 +16229,57 @@ function flushColContext(_colContext)
 		.collision = [],
 		.allCollisions = true
 	]
+	//*/
 return _colContext
 
+/* Removes the given object if it exists in the collison context and adjusts any other
+cached object records for the changed indices caused by the object deletion. */
+// DEPRECATED
+function adjustColContextForRemovedObj(_colCon, _cell, _idx)
+	var baseObj = getMapObjFromRef(g_cell[_cell][_idx])
+	var refCell
+	var refIdx
+	var i
+	var j
+	
+	for i = 0 to len(baseObj.cellIdx) loop
+		refCell = decodeCell(baseObj.cellIdx[i])
+		decodeIdx(refIdx, baseObj.cellIdx[i])
+		
+		j = 0
+		while j < len(_colCon.collision) loop
+			if _colCon.collision[j].cell == refCell then
+				if _colCon.collision[j].idx > refIdx then
+					_colCon.collision[j].idx -= 1
+				else if _colCon.collision[j].idx == refIdx then
+					_colCon.collision = remove(_colCon.collision, j)
+					
+					j -= 1
+				endif endif
+			endif
+			
+			j += 1
+		repeat
+		
+		j = 0
+		while j < len(_colCon.objList) loop
+			if _colCon.objList[j].cell == refCell then
+				if _colCon.objList[j].idx > refIdx then
+					_colCon.objList[j].idx -= 1
+				else if _colCon.objList[j].idx == refIdx then
+					_colCon.objList = remove(_colCon.objList, j)
+					
+					j -= 1
+				endif endif
+			endif
+			
+			j += 1
+		repeat
+	repeat
+return _colCon
+
 /* Finds collisions involving merged objects. */
-// CORE LOADER
+// +CORE LOADER
 function mergedObjIntersect(_mergedObj, _obj)
 return mergedObjIntersect(_mergedObj, _obj, false)
 
@@ -15562,6 +16290,7 @@ function mergedObjIntersect(_mergedObj, _obj, _hit)
 		var i
 		for i = 0 to len(_mergedObj.children) loop
 			_hit = mergedObjIntersect(_mergedObj.children[i], _obj, _hit)
+			
 			if _hit then break endif
 		repeat
 	endif
@@ -15573,36 +16302,46 @@ if the caster's gridBit doesn't overlap _obj's gridBit. If _gridBit is not
 given, it will be set so it always overlaps, making it irrelevant. If
 _getAll is true, the nearest collision wil be returned; otherwise, the
 first collision encountered will be returned. */
-// CORE LOADER
-function raycastGrp(_obj, _cell, _pos, _dir)
-return raycastGrp(_obj, _cell, _pos, _dir, [])
+// +CORE LOADER
+function raycastGrp(ref _in, _obj, _cell, _pos, _dir)
+return raycastGrp(_in, _obj, _cell, _pos, _dir, [])
 
-function raycastGrp(_obj, _cell, _pos, _dir, _gridBit)
-return raycastGrp(_obj, _cell, _pos, _dir, _gridBit, false, float_max)
+function raycastGrp(ref _in, _obj, _cell, _pos, _dir, _gridBit)
+return raycastGrp(_in, _obj, _cell, _pos, _dir, _gridBit, false, float_max)
 
-function raycastGrp(_obj, _cell, _pos, _dir, _gridBit, _getAll)
-return raycastGrp(_obj, _cell, _pos, _dir, _gridBit, _getAll, float_max)
+function raycastGrp(ref _in, _obj, _cell, _pos, _dir, _gridBit, _getAll)
+return raycastGrp(_in, _obj, _cell, _pos, _dir, _gridBit, _getAll, float_max)
 
-function raycastGrp(_obj, _cell, _pos, _dir, _gridBit, _getAll, _hit)
-	var result = [
+function raycastGrp(ref _in, _obj, _cell, _pos, _dir, _gridBit, _getAll, _hit)
+	_in = [
 		.hit = _hit,
 		.child = _obj
 	]
+	var abort = false
+	var merged = len(_obj.children) or len(_obj.lights)
 	
 	// Categorically exclude lights. They have collision data but we can't collide with them.
-	if !len(_obj.children) and !len(_obj.lights) then
-		if !len(_gridBit) then
-			result.hit = raycastObject(_obj.obj, _pos, _dir)
-		else
-			var objGridBit = getObjGridBitForCell(_obj, _cell)
-			
-			if _gridBit[0] & objGridBit[0] 
-					or _gridBit[1] & objGridBit[1] then
-				result.hit = raycastObject(_obj.obj, _pos, _dir)
-			endif
+	if !merged and !len(_gridBit) then
+		_in.hit = raycastObject(_obj.obj, _pos, _dir)
+		
+		abort = true
+	endif
+	
+	if !abort and !merged and len(_gridBit) then
+		var objGridBit
+		getObjGridBitForCell(objGridBit, _obj, _cell)
+		
+		if _gridBit[0] & objGridBit[0] 
+				or _gridBit[1] & objGridBit[1] then
+			_in.hit = raycastObject(_obj.obj, _pos, _dir)
 		endif
-	else
-		if _getAll or result.hit >= float_max then
+		
+		abort = true
+	endif
+	
+	//else
+	
+		if !abort and (_getAll or _in.hit >= float_max) then
 			var i
 			var objGridBit
 			
@@ -15612,7 +16351,72 @@ function raycastGrp(_obj, _cell, _pos, _dir, _gridBit, _getAll, _hit)
 				if !len(_gridBit) then
 					gridMatch = true
 				else
-					objGridBit = getObjGridBitForCell(_obj.children[i], _cell)
+					getObjGridBitForCell(objGridBit, _obj.children[i], _cell)
+					
+					if objGridBit[0] & _gridBit[0] 
+							or objGridBit[1] & _gridBit[1] then
+						gridMatch = true
+					endif
+				endif
+				
+				if gridMatch then
+					var castResult
+					raycastGrp(castResult, _obj.children[i], _cell, _pos, _dir, _gridBit, _getAll, _in.hit)
+					
+					if castResult.hit < _in.hit then
+						//result.hit = castResult.hit
+						//result.child = castResult.child
+						_in = castResult
+					endif
+					
+					if !_getAll and _in.hit < float_max then
+						break
+					endif
+				endif
+			repeat
+		//endif
+	endif
+return _in
+
+
+
+
+function raycastGrp2(_obj, _cell, _pos, _dir, _gridBit, _getAll, _hit)
+	var result = [
+		.hit = _hit,
+		.child = _obj
+	]
+	var merged = false
+	
+	// Categorically exclude lights. They have collision data but we can't collide with them.
+	if !len(_obj.children) and !len(_obj.lights) then
+		if !len(_gridBit) then
+			result.hit = raycastObject(_obj.obj, _pos, _dir)
+		else
+			var objGridBit
+			getObjGridBitForCell(objGridBit, _obj, _cell)
+			
+			if _gridBit[0] & objGridBit[0] 
+					or _gridBit[1] & objGridBit[1] then
+				result.hit = raycastObject(_obj.obj, _pos, _dir)
+			endif
+		endif
+		
+		merged = true
+	endif
+	//else
+		if !merged and (_getAll or result.hit >= float_max) then
+			var i
+			var objGridBit
+			
+			for i = 0 to len(_obj.children) loop
+				var gridMatch = false
+				
+				if !len(_gridBit) then
+					gridMatch = true
+				else
+					getObjGridBitForCell(objGridBit, _obj.children[i], _cell)
+					
 					if objGridBit[0] & _gridBit[0] 
 							or objGridBit[1] & _gridBit[1] then
 						gridMatch = true
@@ -15632,7 +16436,7 @@ function raycastGrp(_obj, _cell, _pos, _dir, _gridBit, _getAll, _hit)
 					endif
 				endif
 			repeat
-		endif
+		//endif
 	endif
 return result
 
@@ -15743,6 +16547,7 @@ function moveCur(_c)
 						endif endif
 					endif
 				repeat
+				
 				break
 			endif break repeat
 			
@@ -15767,13 +16572,15 @@ function moveCur(_c)
 return void
 
 /* Updates stuff that changes based on cursor state. */
-function updateCurContexts(_flushColContext)
-	var curCellResult = updateCellContext(g_cur.cell, g_cur.cellPos, g_cur.pos, false, _flushColContext)
-	g_cur.cell = curCellResult.cell
-	g_cur.cellPos = curCellResult.cellPos
+function updateCurContexts(_flush)
+	//var curCellResult = updateCellContext(g_cur.cell, g_cur.cellPos, g_cur.pos, false, _flush)
+	//g_cur.cell = curCellResult.cell
+	//g_cur.cellPos = curCellResult.cellPos
 	
 	updateCurWidgets()
-	updateCurColContext(_flushColContext)
+	//updateCurColContext(_flushColContext)
+	//g_cur.lastColContext = updateObjCollisions(g_cur.collider, g_cur.lastColContext, floorVec(g_cur.pos) + 0.5, {0, 0, 1}, 
+	updateCurCollisions(_flush)
 return void
 
 /* Projects cursor 3D position to 2D screen position. */
@@ -15926,7 +16733,7 @@ function advanceCurMode(_c)
 				g_cDat[g_cIdx.r].held = true
 				g_cur.mode = "rotate"
 				
-				var rotSize = getRotObjScale(getObjDef(g_activeObj).ext, g_cur.scale)
+				var rotSize = getRotObjScale(getObjDef(-1, g_activeObj).ext, g_cur.scale)
 				
 				g_cur.rotator = createRotObj(g_cur.pos, rotSize)
 				setRotObjMode(g_cur.rotator, g_cur.rotMode)
@@ -15936,7 +16743,7 @@ function advanceCurMode(_c)
 				if objCanScale(g_cur.activeObj) then
 					g_cDat[g_cIdx.r].held = true
 					g_cur.mode = "scale"
-					g_cur.scaler = createScaleCubeObj(g_cur.pos, getObjDef(g_activeObj).ext)
+					g_cur.scaler = createScaleCubeObj(g_cur.pos, getObjDef(-1, g_activeObj).ext)
 					updateCurWidgets()
 				else
 					g_cDat[g_cIdx.r].held = true
@@ -15985,7 +16792,7 @@ function updateCurWidgets()
 		setObjRot(g_cur.rotator.grp, g_cur.pos, g_cur.fwd, g_cur.up)
 		safeObjectPointAt(g_cur.rotator.obj[3].grp, {0, 0, 0}, worldVecToLocalVec({0, 1, 0}, g_cur.fwd, g_cur.up, {0, 0, 0}))
 		setObjRot(g_cur.xyz.grp, g_cur.pos, g_cur.fwd, g_cur.up)
-		var rotSize = getRotObjScale(g_obj[decodeBank(g_cur.activeObj.bankIdx)][decodeIdx(g_cur.activeObj.bankIdx)].ext, 
+		var rotSize = getRotObjScale(g_obj[decodeBank(-1, g_cur.activeObj.bankIdx)][decodeIdx(-1, g_cur.activeObj.bankIdx)].ext, 
 			g_cur.scale)
 		if rotSize != g_cur.rotator.rad then
 			removeRotObj(g_cur.rotator)
@@ -15995,8 +16802,8 @@ function updateCurWidgets()
 	else if g_cur.mode == "scale" then
 		setObjRot(g_cur.scaler.grp, g_cur.pos, g_cur.fwd, g_cur.up)
 		var newExt = [
-			.lo = getObjDef(g_activeObj).ext.lo * g_cur.scale,
-			.hi = getObjDef(g_activeObj).ext.hi * g_cur.scale
+			.lo = getObjDef(-1, g_activeObj).ext.lo * g_cur.scale,
+			.hi = getObjDef(-1, g_activeObj).ext.hi * g_cur.scale
 		]	
 		setScaleCubeObjExt(g_cur.scaler, newExt)
 		setObjectPos(g_cur.scaler.grp, g_cur.pos)
@@ -16048,7 +16855,7 @@ function updateLightSpr()
 		hide = g_lightIconLoader.hide[i]
 		
 		for j = g_cellObjStart to len(g_cell[hide]) loop
-			if !isMapObjRef(g_cell[hide][j]) then
+			if !isMapObjRef(-1, g_cell[hide][j]) then
 				if setGrpLightsSprVisibility(g_cell[hide][j], false, []) then
 					// If the unloaded cells have lights, remove those lights from the light icon array
 					removeLightIconRecord(hide)
@@ -16063,7 +16870,7 @@ function updateLightSpr()
 		show = g_lightIconLoader.show[i]
 		
 		for j = g_cellObjStart to len(g_cell[show]) loop
-			if !isMapObjRef(g_cell[show][j]) then
+			if !isMapObjRef(-1, g_cell[show][j]) then
 				if setGrpLightsSprVisibility(g_cell[show][j], true, []) then
 					g_lightIcons = push(g_lightIcons, [ .cell = show, .idx = j ])
 					
@@ -16114,19 +16921,15 @@ function drawObjLabels()
 					for j = g_cellObjStart to len(g_cell[cellIdx]) loop
 						obj = g_cell[cellIdx][j]
 						
-						if !isMapObjRef(obj) then
-							//objDef = g_obj[decodeBank(obj.bankIdx)][decodeidx(obj.bankIdx)]
-							//extCenter = obj.pos + getExtCenter(getExtMinMax(objDef.ext, obj.scale, obj.fwd, obj.up))
-							//screenPos = worldPosToScreenPos(extCenter, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
+						if !isMapObjRef(-1, obj) then
 							screenPos = worldPosToScreenPos(obj.pos, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
 							
 							if screenPos.x >= 0 and screenPos.x <= gwidth() 
 									and screenPos.y >= 0 and screenPos.y <= gheight() then
-								//scale = scale3dSprite(extCenter, 0.1, g_cam.fwd, g_cam.up, g_cam.pos)
 								scale = scale3dSprite(obj.pos, 0.1, g_cam.fwd, g_cam.up, g_cam.pos)
 								textSize(scale)
 								
-								objName = getMapObjName(obj)
+								getMapObjName(objName, obj)
 								width = textWidth(objName)
 								
 								drawText(screenPos.x - width / 2, screenPos.y, scale,
@@ -16135,7 +16938,7 @@ function drawObjLabels()
 								for k = 0 to len(obj.cellIdx) loop
 									drawText(screenPos.x - width / 2, screenPos.y + (k + 1) * scale, scale,
 										g_theme.bgSelCol, ifElse(g_dirtyMap, "*", "") + "(g_cell[" + decodeCell(obj.cellIdx[k]) + "][" 
-										+ decodeIdx(obj.cellIdx[k]) + "])")
+										+ decodeIdx(-1, obj.cellIdx[k]) + "])")
 								repeat
 							endif
 						endif
@@ -16216,8 +17019,8 @@ function drawStatusBar()
 			drawText(xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, scaleSnapModeStr)
 			drawText(xMargin, barY + g_statusTextH * 2, g_statusTextH, g_theme.textCol,  
 				"Scale: " + vec3ToStr(g_cur.scale, g_dispDec) + " | " + 
-				"Extent: " + vec3ToStr(getObjDef(g_activeObj).ext.lo * g_cur.scale, g_dispDec) + " " 
-				+ chr(8212) + " " + vec3ToStr(getObjDef(g_activeObj).ext.hi * g_cur.scale, g_dispDec))
+				"Extent: " + vec3ToStr(getObjDef(-1, g_activeObj).ext.lo * g_cur.scale, g_dispDec) + " " 
+				+ chr(8212) + " " + vec3ToStr(getObjDef(-1, g_activeObj).ext.hi * g_cur.scale, g_dispDec))
 			break endif
 		if g_cur.mode == "masssel" then
 			var movModeStr
@@ -16335,7 +17138,7 @@ function debug()
 	*/
 	// /*
 	textSize(g_menuTextSize * 0.6)
-	ink(white)
+	ink(purple)
 	printAt(15, 5, "CAM CELL: " + g_cam.cell)
 	printAt(15, 6, "CAM CELLPOS: " + vec3ToStr(g_cam.cellPos, 2))
 	//printAt(15, 7, g_cell[g_cam.cell][1])
@@ -16344,24 +17147,34 @@ function debug()
 	
 	printAt(15, 7, "CURSOR CELL: " + g_cur.cell)
 	printAt(15, 8, g_cur.lastColContext.collision)
+	printAt(15, 9, "CUBE COLLISIONS, OBJLIST")
+	printAt(15, 10, g_cubeColCon.collision)
+	printAt(15, 11, g_cubeColCon.objList)
+	printAt(15, 12, "CAM COLLISION OBJLIST")
+	var i
+	for i = 0 to len(g_cam.lastColContext.objList) loop
+		printAt(15, 13 + i, str(g_cam.lastColContext.objList[i]))
+	repeat
 		
-	printAt(30, 10, "g_lightIcons")
-	printAt(30, 11, g_lightIcons)
-	printAt(30, 12, "g_cur.lastColContext.objList")
-	printAt(30, 13, g_cur.lastColContext.objList)
-	printAt(30, 14, "g_cam.lastColContext.objList")
-	printAt(30, 15, g_cam.lastColContext.objList)
+	//printAt(30, 10, "g_lightIcons")
+	//printAt(30, 11, g_lightIcons)
+	//printAt(30, 12, "g_cur.lastColContext.objList")
+	//printAt(30, 13, g_cur.lastColContext.objList)
+	//printAt(30, 14, "g_cam.lastColContext.objList")
+	//printAt(30, 15, g_cam.lastColContext.objList)
 	//printAt(30, 16, "g_cam.lastColContext.collision")
 	//printAt(30, 17, g_cam.lastColContext.collision)
 	printAt(30, 16, "g_sel")
 	printAt(30, 17, g_sel)
 	if len(g_sel) then
 		printAt(30, 18, "g_sel[0] bank/idx")
-		printAt(30, 19, decodeBank(getMapObjFromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
-		printAt(36, 20, decodeIdx(getMapObjfromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
+		printAt(30, 19, decodeBank(-1, getMapObjFromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
+		printAt(36, 20, decodeIdx(-1, getMapObjfromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
 	endif
 	
-	//printAt(0, 36, g_cur.scale)
+	//for i = g_cellObjStart to len(g_cell[46]) loop
+	//	printAt(0, 36 + i, g_cell[46][i].cellIdx)
+	//repeat
 	//printAt(0, 37, getPosFromGridIdx(g_cur.cell, 13, 20))
 	
 	textSize(gheight() / 45)
@@ -16374,7 +17187,7 @@ function debug()
 		printAt(0, 9, g_cur.massSel.cell)
 		var i
 		for i = 0 to len(g_cur.massSel.contents) loop
-			printAt(0, 21 + i, getMapObjName(g_cur.massSel.contents[i]))
+			printAt(0, 21 + i, getMapObjName(-1, g_cur.massSel.contents[i]))
 		repeat
 	endif
 	// */
@@ -16488,11 +17301,13 @@ updating the program easier for the end user. The source code for the new
 program version needs to be copied into the old project to retain the old 
 save file, and using image editor assets would require that those assets 
 also be manually copied if the image(s) were changed by the update. */
-
 function loadCelqiImg(_idx)
+return loadCelqiImg(_idx, white, black)
+
+function loadCelqiImg(_idx, _fillCol, _outlineCol)
 	var l = {0, 0, 0, 0}
-	var o = black
-	var _ = white
+	var o = _outlineCol
+	var _ = _fillCol
 	var img
 	
 	if _idx == 0 then
@@ -16570,10 +17385,10 @@ function loadCelqiImg(_idx)
 	returnImg = uploadImage(img, 32, 32, 0)
 return returnImg
 
-function loadMergedImg()
+function loadMergedImg(_fillCol, _outlineCol)
 	var l = {0, 0, 0, 0}
-	var o = black
-	var _ = white
+	var o = _outlineCol
+	var _ = _fillCol
 	
 	var img = [
 		l,l,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,l,l,l,l,l,l, // 0
@@ -16829,9 +17644,12 @@ function loadWorldShadowLightImg()
 return returnImg
 
 function loadLogoTextImg()
+return loadLogoTextImg(white, black)
+
+function loadLogoTextImg(_fillCol, _outlineCol)
 	var l = {0, 0, 0, 0}
-	var o = black
-	var _ = white
+	var o = _outlineCol
+	var _ = _fillCol
 	
 	var img = [
 		l,l,l,l,l,l,l,l,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,   l,l,l,o,o,o,o,o,l,l,l,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,l, // 0
