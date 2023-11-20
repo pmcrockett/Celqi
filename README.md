@@ -1,4 +1,4 @@
-# OVERVIEW
+# CELQI 1.0.00 — OVERVIEW
 
 --------
 Celqi is a 3D map editor for FUZE4 Nintendo Switch that makes it easy to quickly build complicated environments out of objects from FUZE's extensive asset library. Celqi is primarily a graphical editor and is designed to provide a user-friendly alternative to directly defining 3D object placement in code. In this way, it is roughly analogous to FUZE's built-in 2D map editor. Celqi stores its map data in the text file, and by including a subset of Celqi's functions (the core loader) in your game project, you can access the map data from code without running the editor.
@@ -91,8 +91,8 @@ Celqi is designed to be used with Joycons, though it is also possible to use a U
 |Move cursor forward/backward/left/right|Left stick|i/k/j/l|
 |Move cursor up/down/left/right|(L) + left stick|o/u/j/l|
 |Cycle edit mode|(R\)|Space|
-|Start mass selection|(B)|\\|
-|Cancel mass selection (while selecting)|(B)|\\|
+|Start mass selection|(B)|\\
+|Cancel mass selection (while selecting)|(B)|\\
 |Confirm mass selection (while selecting)|(A)|Enter|
 |Place current brush object|(A)|Enter|
 
@@ -116,7 +116,7 @@ Celqi is designed to be used with Joycons, though it is also possible to use a U
 |Open/close object menu|(Y)|`|
 |Move selection|Left stick/D-pad|w/s/a/d|
 |Open submenu|Left stick right/D-pad right/(A)|d/Enter|
-|Close submenu|Left stick left/D-pad left/(B)|a/\\|
+|Close submenu|Left stick left/D-pad left/(B)|a/\\
 |Change bank (object menu)|(L)/(R\)|q/e|
 |Confirm selection|(A)|Enter|
 
@@ -193,7 +193,7 @@ Celqi is designed to be used with Joycons, though it is also possible to use a U
 ##### ADVANCED
 * **Screen resolution** — If the Switch is docked, the display resolution can be increased to 1920x1080.
 * **Photo mode** — Hides UI elements and editor widgets to facilitate screenshots and physics demoing.
-* **Show object labels** — Displays objects' names and their indices in the `g_cell` array (see [**REFERENCING OBJECTS IN CODE**](https://github.com/pmcrockett/Celqi#referencing-map-objects-in-code)).
+* **Show object labels** — Displays objects' names and their indices in the `g_cell` array (see [**REFERENCING MAP OBJECTS IN CODE**](https://github.com/pmcrockett/Celqi#referencing-map-objects-in-code)).
 * **Camera collisions** — Sets the algorithm used for finding camera collisions with the environment.
 * **Show cell outlines** — Celqi maps are built from a matrix of 5x5x5 cells that are automatically created by cursor movement and object placement. These cells are important to the underlying map engine, but in most cases, they can be ignored during map creation. This option enables visualization of the cells that the camera and cursor are in.
 * **Throw physics object** — Throws the current brush object into the world to demo the experimental physics engine. The thrown object disappears after several seconds.
