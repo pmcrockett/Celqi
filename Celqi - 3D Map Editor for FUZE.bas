@@ -1,22 +1,29 @@
-// Color slider range
-   /*/\\\/////////// /|| \\\\\\\\\\/|\
- ////   \|    /\\\   |||    //\\
-||||        ///  \\\ |||  /// \\/||\\*
-||||       ||||///// ||| |||| |||  |||
- \\\\   /|  \\\      ||| \\\\ |||  |||
-   \*\///\\\\\\\\\\\///\\\\\\/|||  |||
-                              |||  |||
-   Celqi - \\\\\\\\\\\\\\\\\\ |||  |||
-   3D Map Editor for FUZE \\\ |||  |||
-   ////// P.M. Crockett, 2023 *\\||/*/
+		   /*/\\\/////////// /|| \\\\\\\\\\/|\
+		 ////   \|    /\\\   |||    //\\
+		||||        ///  \\\ |||  /// \\/||\\*
+		||||       ||||///// ||| |||| |||  |||
+		 \\\\   /|  \\\      ||| \\\\ |||  |||
+		   \*\///\\\\\\\\\\\///\\\\\\/|||  |||
+		                              |||  |||
+		   Celqi \\\\\\\// ver.1.0.00 |||  |||
+		   3D Map Editor for FUZE /// |||  |||
+		   \\\\\ Petra Crockett, 2023 *\\||/*/
+
+// BUGS FIND DATA DELICIOUS -- MAKE BACKUPS OF IMPORTANT MAPS BY 
+// COPYING CELQI IN THE FUZE PROGRAM BROWSER.
+
+// Full help documentation available at github.com/pmcrockett/Celqi.
+// To get in touch, message me via GitHub, via the FUZE Discord server, 
+// or via the FUZE forum (https://fuzearena.com/forum/user/mozipha).
 
 // ----------------------------------------------------------------
 // CORE LOADER OVERRIDE
-// UNCOMMENT THIS FUNCTION TO RUN THE CORE LOADER WITHOUT THE EDITOR
+// Uncomment this function to run the core loader without the editor.
+
 /*
 // Wraps functions that differ between the editor and the core loader,
 // which allows the editor code to be deleted without throwing errors.
-function edFunction(ref _in, _funcName, _argArr)
+function coreLoader(ref _in, _funcName, _argArr)
 	loop if _funcName == "isEditor" then
 		_in = false
 		break endif
@@ -29,17 +36,14 @@ function edFunction(ref _in, _funcName, _argArr)
 	endif break repeat
 return _in
 */
+
 // ----------------------------------------------------------------
 // USER MODIFIABLE FUNCTIONS
 
-// Add 3D model references to this function. Anything added here will appear
-// in the editor's object menu. If you delete or rename a model that is in 
-// use in a map or merged object, the editor will prompt you to relink the 
-// deleted definition to an existing definition. 
-
-// Merged object definitions, which combine an arbitrary number of objects into a
-// single object, exist only in the saved file and must be created in the editor 
-// rather then being defined here.
+// Add 3D model references to the getModels() function. Anything added will appear
+// in the editor's object menu. If you delete or rename a model that is in use in 
+// a map or merged object, the editor will prompt you to relink the deleted 
+// definition to an existing definition. 
 
 // Object banks use the following format. Any number of objects can be added to a 
 // bank. If the first entry in a bank has a single element instead of two, it will 
@@ -61,7 +65,7 @@ return _in
 // etc.
 
 // Please note that FUZE has an internal limit of 124 models loaded, so you cannot
-// have more than 124 object definitions. You can safely delete the 'Castle Demo' 
+// have more than 124 object definitions. You can safely delete the Castle Demo 
 // bank to free up space if you aren't using its definitions in your own maps.
 
 function getModels()
@@ -161,16 +165,17 @@ function getModels()
 	models = insertArray(models, [ [ ["Clipboard"] ], [ ["Primitives"] ], [ ["Lights"] ] ], 0)
 return models
 
-// This stub function allows you to display a loading message based on the map
-// element that is currently loading. Modify it to fit your game or leave it
-// empty for no message.
+// When running the core loader without the editor, this stub function allows 
+// you to display a loading message based on the map element that is currently 
+// loading. Modify it to fit your game or leave it empty for no message.
 function loadMapMsg(_mapName, _objName, _objPos)
 	// Put code for loading message here
 return void
 
-// This stub function allows you to display a loading message based on the 
-// object defintion that is currently loading. Modify it to fit your game 
-// or leave it empty for no message.
+// When running the core loader without the editor, this stub function allows 
+// you to display a loading message based on the object defintion that is 
+// currently loading. Modify it to fit your game or leave it empty for no 
+// message.
 function loadDefMsg(_defName)
 	 // Put code for loading message here
 return void
@@ -182,8 +187,8 @@ return void
 	// CORE SETUP
 
 //System setup
+var g_safeMode = false // Setting to true will block file closure and freeze the save file in its current state
 var g_version = "1.0.00"
-var g_freezeFile = true // Setting to true will block file closure and freeze the save file in its current state
 var g_lightBank = 2 // Bank number for lights
 var g_intLen = 64 // Number of bits to use for binary variables. FUZE technically has 64-bit signed ints, but it's complicated
 var g_physicsFreezeThreshold = 3 // Number of physics calls before a stationary physics object is frozen
@@ -197,31 +202,9 @@ var g_cellExt = [
 var g_cellObjStart = 2 // First index of object storage in a cell. We don't store objects in a subarray because that would increase access time.
 var g_cellBitLen = pow(getCellWidth(), 3)
 var g_cell // This is the array that stores all cell and map object data
-
 var g_mapFile
-var g_loadResult
 var g_obj
 var g_bankName
-var g_missingRefs
-
-function initCore()
-return initCore("")
-
-function initCore(_mapName)
-	g_mapFile = open() // Subsequent opens must use openFile() rather than open() to respect g_freezeFile's state
-	
-	// Arrange model data in a code-readable format
-	g_loadResult = loadObjDefs(g_mapFile)
-	g_obj = g_loadResult.obj
-	g_bankName = g_loadResult.bankName
-	g_missingRefs = loadMergedObjDefs(g_mapFile)
-	
-	if len(_mapName) then
-		readMap(g_mapFile, _mapName)
-	endif
-	
-	close(g_mapFile)
-return void
 
 // Stores information about an object's collision state.
 struct colContext
@@ -286,7 +269,7 @@ struct mapObjRef
 	int cellIdx
 endStruct
 
-// active is a relic -- it used to e a reduced dataset of mapObj, but
+// active is a relic -- it used to be a reduced dataset of mapObj, but
 // now mostly just recreates mapObj. Due for deprecation.
 struct active
 	string name
@@ -339,8 +322,49 @@ struct objDef
 	array lights[0]
 endStruct
 
+// Initializes the core loader so that Celqi can operate without the editor. Automatically 
+// loads a map if one is provided.
+function initCore()
+return initCore("")
+
+function initCore(_mapName)
+	g_mapFile = open() // Subsequent opens must use openFile() rather than open() to respect g_safeMode's state
+	
+	// Arrange model data in a code-readable format
+	var loadResult = loadObjDefs(g_mapFile)
+	g_obj = loadResult.obj
+	g_bankName = loadResult.bankName
+	loadMergedObjDefs(g_mapFile)
+	
+	if len(_mapName) then
+		readMap(g_mapFile, _mapName)
+	endif
+	
+	close(g_mapFile)
+return void
+
 	// ----------------------------------------------------------------
 	// CORE FILE READING
+
+// Returns the end-of-file index or the index of the first unallocated space.
+function getEofIdx(_file)
+	var eof = findFileChar(_file, chr(127))
+	
+	// If no delete char, then write one at the end of file.
+	// Celqi always wants a delete char to mark the end of its
+	// usable file space.
+	if eof < 0 then
+		eof = len(_file)
+		seek(_file, eof)
+		write(_file, chr(127))
+	endif
+return eof
+
+// Returns the first index in the file that Celqi isn't using. Anything written 
+// at or beyond this index can't be seen or modified by Celqi. This index will 
+// change depending on how much file space Celqi is using.
+function getUserFileIdx(_file)
+return getEofIdx(_file) + 1
 
 // Light data are saved separately in the file from object data. This function
 // takes the object data and the light data and assembles them into a complete
@@ -424,7 +448,7 @@ function readMap(_file, _mapName)
 		placeObjFromTemplate(_queued[0].obj, isGrp)
 		var mapObjName
 		getMapObjName(mapObjName, _queued[0].obj)
-		edFunction(-1, "loadMapMsg", [ _mapName, mapObjName, _queued[0].obj.pos ])
+		coreLoader(-1, "loadMapMsg", [ _mapName, mapObjName, _queued[0].obj.pos ])
 		
 		_queued = remove(_queued, 0)
 		_queuedLight = remove(_queuedLight, 0)
@@ -439,7 +463,7 @@ function readMap(_file, _mapName)
 	var objTimer = 0
 	var placementTimer = 0
 	
-	edFunction(-1, "loadMapMsg", [ _mapName, "", 0 ])
+	coreLoader(-1, "loadMapMsg", [ _mapName, "", 0 ])
 	readCellMap(_file, _mapName)
 	
 	var redefHappened = false
@@ -512,12 +536,12 @@ function readMap(_file, _mapName)
 							currentDef.idx = defResult.idx
 						endif
 						
-						if defResult.bank < 0 and edFunction(-1, "isEditor", -1) then
+						if defResult.bank < 0 and coreLoader(-1, "isEditor", -1) then
 							idxOffsetFromSection = chunk.idx - sectionIdx.start
 							nextIdxOffsetFromSection = chunk.nextIdx - sectionIdx.start
 							
 							if !isRedef then
-								edFunction(redefResult, "promptObjDefRelink", [ genObj.name, 1 ])
+								coreLoader(redefResult, "promptObjDefRelink", [ _file, genObj.name, 1 ])
 								
 								// The redef changed the file length, so refind our index 
 								// in the map section.
@@ -541,7 +565,7 @@ function readMap(_file, _mapName)
 							
 							redefHappened = true
 						// isEditor != 1: If an object def can't be found and we're in the Core Loader, ignore the def
-						else if defResult.bank < 0 and !edFunction(-1, "isEditor", -1) then
+						else if defResult.bank < 0 and !coreLoader(-1, "isEditor", -1) then
 							isDelDef = true
 						endif endif
 					endif
@@ -595,8 +619,6 @@ function readMap(_file, _mapName)
 	// debugPrint(0, ["Map read time: " + str(time() - loadTimer - objTimer),
 	// 	"Object placement time: " + str(objTimer),
 	// 	"Total load time: " + str(time() - loadTimer)])
-	
-	g_sndQueue = getLoadedAudio()
 	
 	result = [
 		.redefHappened = redefHappened,
@@ -838,7 +860,7 @@ function loadLightDefs()
 	defs[4] = newDef
 return defs
 
-// The light definition bank cannot be modified by the user. These light
+// The primitive definition bank cannot be modified by the user. These primitive 
 // objects are fully defined in code and do not load from file.
 function loadPrimitiveDefs()
 	array defs[5]
@@ -850,7 +872,7 @@ function loadPrimitiveDefs()
 	newDef.children = []
 	newDef.lights = []
 	
-	edFunction(-1, "loadDefMsg", [ "Primitives" ])
+	coreLoader(-1, "loadDefMsg", [ "Primitives" ])
 	
 	newDef.name = "Cube"
 	objExt = placeObject(cube, {0, 0, 0}, newDef.scale)
@@ -971,7 +993,7 @@ function loadObjDef(_file, _modelDat)
 		def.name = getDefaultDefName(_modelDat[1])
 	endif
 	
-	edFunction(-1, "loadDefMsg", [ def.name ])
+	coreLoader(-1, "loadDefMsg", [ def.name ])
 	
 	def.file = _modelDat[1]
 	def.obj = loadModel(_modelDat[1])
@@ -1137,7 +1159,7 @@ return result
 // Puts the merged object into the g_obj array so it can be used. If the
 // requested bank doesn't exist, it is created.
 function loadAssembledMergedObjDef(_def, _savedBankName)
-	edFunction(-1, "loadDefMsg", [ _def.name ])
+	coreLoader(-1, "loadDefMsg", [ _def.name ])
 	
 	var bankFound = false
 	var defBank
@@ -1162,7 +1184,7 @@ function loadAssembledMergedObjDef(_def, _savedBankName)
 		defBank = len(g_obj) - 1
 		defIdx = 0
 		g_bankName = push(g_bankName, _savedBankName)
-		g_obj[len(g_obj) - 1] = push(g_obj[len(g_obj) - 1], _def)
+		g_obj[-1] = push(g_obj[-1], _def)
 	endif
 	
 	result = [ .bank = defBank, .idx = defIdx ]
@@ -1505,6 +1527,18 @@ function bitOrLong(_bitIntArr1, _bitIntArr2)
 	repeat
 return _bitIntArr1
 
+// Compact if statement that returns argument 2 or 3 depending on the truth of
+// argument 1.
+function ifElse(_cond, _if, _else)
+	var result
+	
+	if _cond then
+		result = _if
+	else
+		result = _else
+	endif
+return result
+
 	// ----------------------------------------------------------------
 	// CORE ARRAY FUNCTIONS
 
@@ -1610,6 +1644,29 @@ function push(_arr, _item)
 	_arr[len(arrBuffer)] = _item
 return _arr
 
+// Looks for _obj in _arr. Can't be done with the normal find function because
+// mapObj needs a different equality check.
+function findMapObj(_arr, _obj)
+	var idx = -1
+	
+	var i
+	for i = 0 to len(_arr) loop
+		if mapObjEquals(_arr[i], _obj) then
+			idx = i
+			break
+		endif
+	repeat
+return idx
+
+// Is _obj present in the array?
+function containsMapObj(_arr, _obj)
+	var found = false
+	
+	if findMapObj(_arr, _obj) > -1 then
+		found = true
+	endif
+return found
+
 	// ----------------------------------------------------------------
 	// CORE VECTOR FUNCTIONS
 
@@ -1666,6 +1723,14 @@ function roundVec(_v, _decimals)
 	endif
 return _v
 
+// Rounds each element of a vector to the closest multiple of another number (_mult), 
+// with the multiplication sequence offset by the given amount (_offset).
+function roundVec3ToMultiple(_v, _mult, _offset)
+	_v[0] = roundToMultiple(_v[0], _mult, _offset)
+	_v[1] = roundToMultiple(_v[1], _mult, _offset)
+	_v[2] = roundToMultiple(_v[2], _mult, _offset)
+return _v
+
 // Vector implementation of floor().
 function floorVec(_v)
 	var i
@@ -1673,6 +1738,30 @@ function floorVec(_v)
 		_v[i] = floor(_v[i])
 	repeat
 return _v
+
+// Lerp both a forward and an up vector at the same time. Forward's rotation axis is calculated, 
+// and up's rotation axis is forward.
+function lerpDirVecs(_fwd1, _up1, _fwd2, _up2, _t)
+	var axis = safeCross(_fwd1, _fwd2)
+	
+	if axis == {0, 0, 0} then
+		axis = _up1
+	endif
+	
+	var fwdDeg = getAngleBetweenVecs(_fwd1, _fwd2)
+	
+	var targUp = axisRotVecBy(_up1, axis, fwdDeg)
+	var upDeg = getAngleBetweenVecs(targUp, _up2)
+	
+	var newFwd = axisRotVecBy(_fwd1, axis, fwdDeg * _t)
+	var newUp = axisRotVecBy(_up1, axis, fwdDeg * _t)
+	newUp = axisRotVecBy(newUp, newFwd, upDeg * _t)
+	
+	var result = [
+		.fwd = newFwd,
+		.up = newUp
+	]
+return result
 
 // Remaps a 3D vector to a different context.
 function changeVecSpace(_vec, _newFwd, _newUp, _newR, _newPos)
@@ -1743,6 +1832,7 @@ return result
 
 // Converts degrees of rotation around an axis to direction vectors.
 function axisAngleToDirVec(_axis, _deg)
+	_axis = safeNormalize(_axis)
 	var result = [
 		.fwd = axisRotVecBy({0, 0, 1}, _axis, _deg),
 		.up = axisRotVecBy({0, 1, 0}, _axis, _deg)
@@ -1970,13 +2060,17 @@ function activeFromObjDef(_bank, _idx, _createModel, _useDef, _def)
 	var newChild
 	
 	for i = 0 to len(_def.children) loop
-		newChild = activeFromObjDef(decodeBank(-1, act.children[i].bankIdx), 
-			decodeIdx(-1, act.children[i].bankIdx), _createModel, false, -1)
-		// Children have saved material data, but activeFromObjDef() initializes a default, 
-		// so overwrite that default with the data saved in the parent.
-		newChild.col = act.children[i].col
-		newChild.mat = act.children[i].mat
-		act.children[i].children = newChild.children
+		// Some relink situations need to skip child creation if the child doesn't 
+		// exist, which we know is the case if .bankIdx contains its name
+		if !len(_def.children[i].bankIdx) then
+			newChild = activeFromObjDef(decodeBank(-1, act.children[i].bankIdx), 
+				decodeIdx(-1, act.children[i].bankIdx), _createModel, false, -1)
+			// Children have saved material data, but activeFromObjDef() initializes a default, 
+			// so overwrite that default with the data saved in the parent.
+			newChild.col = act.children[i].col
+			newChild.mat = act.children[i].mat
+			act.children[i].children = newChild.children
+		endif
 	repeat
 	
 	act.lights = _def.lights
@@ -2134,7 +2228,7 @@ return placedObj
 function placeLightFromTemplate(_t)
 	_t.light = placeLightByType(_t.name, _t.col, _t.pos, _t.brightness, _t.res, _t.fwd, _t.spread, _t.range)
 	
-	if edFunction(-1, "isEditor", -1) then
+	if coreLoader(-1, "isEditor", -1) then
 		if _t.col.a != g_sprAlpha then _t.col.a = g_sprAlpha endif
 		
 		_t.spr = createSprite()
@@ -2202,7 +2296,7 @@ return newLight
 function placeGrpObj(_template, _appliedTemplate)
 	var fov
 	
-	if edFunction(-1, "isEditor", -1) then
+	if coreLoader(-1, "isEditor", -1) then
 		fov = g_cam.fov
 	else
 		fov = 70
@@ -2221,7 +2315,7 @@ function placeGrpObj(_template, _appliedTemplate, _fov)
 		.up = {0, 1, 0}]
 		
 	setGrpLightsPos(lightContainer, _fov)
-	edFunction(-1, "setGrpLightsSprScale", [ lightContainer, lightContainer.scale ])
+	coreLoader(-1, "setGrpLightsSprScale", [ lightContainer, lightContainer.scale ])
 return result
 
 function placeGrpObjNoLightTransform(_template, _appliedTemplate, _fov)
@@ -2276,12 +2370,11 @@ function placeGrpObjNoLightTransform(_template, _appliedTemplate, _fov)
 		textSize(gheight() / 25)
 		printAt(1, 1, "Error in placeGrpObjNoLightTransform():" + chr(10) +
 			getMapObjName(-1, _template) + " is not a merged object." + chr(10) +
-			"Creating placeholder waffle ...")
+			"Creating placeholder cube ...")
 		update()
 		sleep(1)
 		
-		var newModel = loadModel("Devils Garage/waffle") // Sorry, have a waffle instead :(
-		newObj = placeObject(newModel, {0, 0, 0}, {1, 1, 1})
+		newObj = placeObject(cube, {0, 0, 0}, {1, 1, 1}) // Sorry, have a cube instead :(
 	endif
 	
 	var result = [
@@ -2487,9 +2580,9 @@ function addMapObj(_activeObj, _pos, _fwd, _up, _scale, _isGrp)
 		repeat
 		
 		// Store data about light sprites if we're in the editor
-		if edFunction(-1, "isEditor", -1) then
+		if coreLoader(-1, "isEditor", -1) then
 			var lightTypes
-			edFunction(lightTypes, "getGrpLightsTypes", [ newObj ])
+			coreLoader(lightTypes, "getGrpLightsTypes", [ newObj ])
 			
 			if len(lightTypes) then
 				var objRef = [ .cell = cellIdx[0], .idx = len(g_cell[cellIdx[0]]) - 1 ]
@@ -2545,7 +2638,7 @@ function deleteLightObj(_obj)
 	removeLight(_obj.light)
 	_obj.light = -1
 	
-	if edFunction(-1, "isEditor", -1) then
+	if coreLoader(-1, "isEditor", -1) then
 		removeSprite(_obj.spr)
 	endif
 	
@@ -2634,7 +2727,7 @@ return newObj
 function initLightObj()
 	var alpha
 	
-	if edFunction(-1, "isEditor", -1) then
+	if coreLoader(-1, "isEditor", -1) then
 		alpha = g_sprAlpha
 	else
 		alpha = 1
@@ -2663,7 +2756,7 @@ return l
 function setGrpLightsPos(_obj)
 	var fov
 	
-	if edFunction(-1, "isEditor", -1) then
+	if coreLoader(-1, "isEditor", -1) then
 		fov = g_cam.fov
 	else
 		fov = 70
@@ -2677,9 +2770,9 @@ function setGrpLightsPos(_obj, _fov)
 	for i = 0 to len(_obj.lights) loop
 		_obj.lights[i] = applyGrpPos(_obj.lights[i], _obj)
 		
-		if edFunction(-1, "isEditor", -1) then
-			edFunction(light2dPos, "worldPosToScreenPos", [ _obj.lights[i].pos, 
-				g_cam.fwd, g_cam.up, g_cam.pos, _fov ])
+		if coreLoader(-1, "isEditor", -1) then
+			coreLoader(light2dPos, "worldPosToScreenPos", [ _obj.lights[i].pos, 
+				g_cam.fwd, g_cam.up, g_cam.pos, _fov, gwidth(), gheight() ])
 			setSpriteLocation(_obj.lights[i].spr, light2dPos)
 		endif
 		
@@ -2755,6 +2848,12 @@ function setGroupMaterial(_obj, _overrideCol, _overrideMetal, _overrideRough, _o
 			_overrideRough, _overrideEm)
 	repeat
 return _obj
+
+// Sets an object back to the default non-flashing color. An override color will replace the color of
+// any children below the point in the parent/child structure where it is given.
+function restoreDefaultObjCol(_obj)
+	setGroupMaterial(_obj, {-1, -1, -1, -1}, -1, -1, -1)
+return void
 
 // Sets rotation for a merged object. _pos is needed in order for
 // safeObjPointAt() to work; if the bug in objectPoinAt() is fixed in the
@@ -2882,6 +2981,9 @@ return eq
 // 16 MSBs representing the bank and the 16 LSBs representing the index.
 function encodeBankIdx(_bank, _idx)
 return bitFieldInsert(0, 0, 16, _idx) | bitFieldInsert(0, 16, 16, _bank)
+
+function decodeBank(_bankIdx)
+return bitFieldExtract(_bankIdx, 16, 16)
 
 function decodeBank(ref _in, _bankIdx)
 	_in = bitFieldExtract(_bankIdx, 16, 16)
@@ -3168,16 +3270,16 @@ return _colCon
 
 // Gets map collisions without running physics.
 function getSimpleMapCollision(ref _colCon, _obj, _pos)
-return getSimpleMapCollision(_colCon, _obj, _pos, _colCon.fwd, _colCon.up, _colCon.scale, false, false, _colCon.collisionMode)
+return getSimpleMapCollision(_colCon, _obj, _pos, _colCon.fwd, _colCon.up, _colCon.scale, true, false, _colCon.collisionMode)
 
 function getSimpleMapCollision(ref _colCon, _obj, _pos, _fwd)
-return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _colCon.up, _colCon.scale, false, false, _colCon.collisionMode)
+return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _colCon.up, _colCon.scale, true, false, _colCon.collisionMode)
 
 function getSimpleMapCollision(ref _colCon, _obj, _pos, _fwd, _up)
-return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _up, _colCon.scale, false, _colCon.collisionMode)
+return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _up, _colCon.scale, true, _colCon.collisionMode)
 
 function getSimpleMapCollision(ref _colCon, _obj, _pos, _fwd, _up, _scale)
-return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _up, _scale, false, false, _colCon.collisionMode)
+return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _up, _scale, true, false, _colCon.collisionMode)
 
 function getSimpleMapCollision(ref _colCon, _obj, _pos, _fwd, _up, _scale, _getAllCollisions)
 return getSimpleMapCollision(_colCon, _obj, _pos, _fwd, _up, _scale, _getAllCollisions, false, _colCon.collisionMode)
@@ -3285,7 +3387,7 @@ return _in
 // _grav = {0, -50, 0} approximates normal Earth gravity.
 // Mass value is clamped between 1 and 100.
 function initColContext(_colCon, _obj, _comPos, _fwd, _up, _scale, _mode, _mass)
-return initColContext(_colCon, _obj, _comPos, _fwd, _up, _scale, _mode, _mass, {0, -1, 0}, 0.001, true, true, true)
+return initColContext(_colCon, _obj, _comPos, _fwd, _up, _scale, _mode, _mass, {0, -50, 0}, 0.001, true, true, true)
 
 function initColContext(_colCon, _obj, _comPos, _fwd, _up, _scale, _mode, _mass, _grav)
 return initColContext(_colCon, _obj, _comPos, _fwd, _up, _scale, _mode, _mass, _grav, 0.001, true, true, true)
@@ -3354,6 +3456,47 @@ function initColContext(_colCon, _obj, _comPos, _fwd, _up, _scale, _mode, _mass,
 	endif
 return _colCon
 
+// Removes duplicate entries from a collision array with elements in 
+// the form [ .cell = INT, .idx = INT ] and returns an array of unique 
+// mapObjs.
+function filterCollisions(_collisions)
+return filterCollisions(_collisions, true)
+
+function filterCollisions(_collisions, _getAllCollisions)
+	var contents = []
+	var cellObj
+	var compareCellIdx
+	var found
+	var obj
+	var i
+	var j
+	
+	for i = 0 to len(_collisions) loop
+		cellObj = g_cell[_collisions[i].cell][_collisions[i].idx]
+		found = false
+		
+		if isMapObjRef(-1, cellObj) then
+			compareCellIdx = cellObj.cellIdx
+		else
+			compareCellIdx = cellObj.cellIdx[0]
+		endif
+		
+		for j = 0 to len(contents) loop
+			if contents[j].cellIdx[0] == compareCellIdx then
+				found = true
+				break
+			endif
+		repeat
+		
+		if !found then
+			obj = getMapObjFromStruct(_collisions[i])
+			contents = push(contents, obj)
+			
+			if !_getAllCollisions then break endif
+		endif
+	repeat
+return contents
+
 // Gets the objects origin based on it center of bounding box position.
 function getOriginFromCom(_comPos, _centerOfMass, _fwd, _up, _scale)
 return _comPos - changeVecSpaceZFwd(_centerOfMass * _scale, _fwd, _up, safeCross(_fwd, _up), {0, 0, 0})
@@ -3374,43 +3517,43 @@ return _colCon
 // in the position determined by its velocity causes a collision and positions the object to account for that 
 // collision.
 function updateObjPhysics(_obj, ref _colCon)
-return updateObjPhysics(_obj, _colCon, _colCon.scale, _colCon.collisionMode, false, false, false, true, false, 1, 
-		false, deltaTime(), {0, 0, 0})
+return updateObjPhysics(_obj, _colCon, _colCon.scale, _colCon.collisionMode, false, true, true, true, false, 1, 
+		true, deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale)
-return updateObjPhysics(_obj, _colCon, _scale, _colCon.collisionMode, false, false, false, true, false, 1, false, 
+return updateObjPhysics(_obj, _colCon, _scale, _colCon.collisionMode, false, true, true, true, false, 1, true, 
 		deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode)
-return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, false, false, false, true, false, 1, false, deltaTime(), 
+return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, false, true, true, true, false, 1, true, deltaTime(), 
 		{0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate)
-return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, false, false, true, false, 1, false, 
+return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, true, true, true, false, 1, true, 
 		deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions)
-return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, false, true, false, 1, 
-		false, deltaTime(), {0, 0, 0})
+return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, true, true, false, 1, 
+		true, deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal)
 return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal, true, false, 
-		1, false, deltaTime(), {0, 0, 0})
+		1, true, deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal,
 		_affectRot)
 return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal, _affectRot, 
-		false, 1, false, deltaTime(), {0, 0, 0})
+		false, 1, true, deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal,
 		_affectRot, _maintainOrthoR)
 return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal, _affectRot, 
-		_maintainOrthoR, 1, false, deltaTime(), {0, 0, 0})
+		_maintainOrthoR, 1, true, deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal,
 		_affectRot, _maintainOrthoR, _normRecurLimit)
 return updateObjPhysics(_obj, _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal, _affectRot, 
-		_maintainOrthoR, _normRecurLimit, false, deltaTime(), {0, 0, 0})
+		_maintainOrthoR, _normRecurLimit, true, deltaTime(), {0, 0, 0})
 
 function updateObjPhysics(_obj, ref _colCon, _scale, _collisionMode, _forceUpdate, _getAllCollisions, _getNormal,
 		_affectRot, _maintainOrthoR, _normRecurLimit, _useGrav)
@@ -4394,9 +4537,6 @@ return _in
 // to updateObjPhysics()'s _fwd input every frame to update a physics object.
 function getNewColFwd(_colCon, _delta)
 	var fwd = axisRotVecBy(_colCon.fwd, _colCon.rotVelAxis, _colCon.rotVel * _delta)
-	if str(fwd[0]) == "nan" then
-		debugPrint(0, [_colCon.fwd, _colCon.rotVelAxis, _colCon.rotVel, _delta])
-	endif
 return fwd
 
 // Gets a new target rotation for an object's up vector by adding its current rotational velocity 
@@ -4712,7 +4852,7 @@ return _in
 	// ----------------------------------------------------------------
 	// EDITOR GLOBAL SETUP
 
-if !edFunction(-1, "isEditor", -1) then break endif// Abort if not running as an editor
+if !coreLoader(-1, "isEditor", -1) then break endif// Abort if not running as an editor
 
 // System setup
 var g_breakpoint = true // Enable or disable debug breakpoints
@@ -4720,15 +4860,15 @@ var g_frame = 0 // Current frame number
 var g_copyLimit = 32 // Max number of objects that can exist in the copy bank before old ones start getting removed
 var g_pauseRequest = 0 // Set this to request sleep() after the frame is drawn
 
-// Default theme and background in case Ninety-Five has been deleted from the
+// Default theme and background in case Halcyon has been deleted from the
 // getThemeDefs() function by the user. Superceded by loaded file data if present.
 var g_theme = [
-	.name = "Ninety-Five",
-	.bgCol = platinum,
-	.textCol = black,
-	.bgSelCol = blue,
-	.textSelCol = platinum,
-	.inactiveCol = lightGrey
+	.name = "Halcyon",
+	.bgCol = lavender,
+	.textCol = midnight,
+	.bgSelCol = purple,
+	.textSelCol = lavender,
+	.inactiveCol = thistle
 ]
 
 var g_bg
@@ -4755,7 +4895,6 @@ var g_logo = [
 ]
 initLogoSpr()
 initLogoTextSpr()
-setSpriteCamera(gwidth() / 2, gheight() / 2)
 
 // Stores cells on the horizon of icon visibility so we know when to 
 // show and hide the spites.
@@ -4772,7 +4911,6 @@ var g_menuTextSize
 var g_dialogTextSize
 var g_statusTextH
 var g_statusBarH
-initScreenRes()
 
 var g_visibleCellOutlines = false
 array g_cellOutline[0]
@@ -4785,7 +4923,7 @@ initSel()
 // Camera
 colContext g_newColCon
 var g_cam = [
-	.movSpd = 5,
+	.movSpd = 65,
 	.rotSpd = 125,
 	.pos = {0, 1, 1},
 	.dir = {0, 1, 2},
@@ -4805,7 +4943,7 @@ var g_cam = [
 ]
 setObjectVisibility(g_cam.collider, false)
 setFov(g_cam.fov)
-initCam()
+initCam(true)
 
 // Cursor
 var g_cur = [
@@ -4820,17 +4958,17 @@ var g_cur = [
 	.posSnapMode = 2,
 	.posSnapAmount = -1,
 	.rotMode = 1,
-	.rotSnapMode = 0,
+	.rotSnapMode = 2,
 	.rotSnapAmount = 45,
 	.scaleMode = 0,
-	.scaleSnapMode = 0,
+	.scaleSnapMode = 2,
 	.scaleSnapAmount = 0.1,
 	.scale = {1, 1, 1},
 	.objGrp = createObjectGroup({0.5, 0.5, 0.5}),
 	.xyz = createXYZObj({0.5, 0.5, 0.5}, 1), // Object indicating brush local axes
 	.pos = {0.5, 0.5, 0.5},
 	.prevPos = {0.5, 0.5, 0.5},
-	.pos2d = worldPosToScreenPos({0.5, 0.5, 0.5}, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov),
+	.pos2d = worldPosToScreenPos({0.5, 0.5, 0.5}, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov, gwidth(), gheight()),
 	.fwd = {0, 0, 1},
 	.up = {0, 1, 0},
 	.massSel = -1, // Data about mass selecion state
@@ -4862,11 +5000,14 @@ var g_blink = [
 	.dur0 = 0.25, // Duration of state 0
 	.dur1 = 0.75 // Duration of state 1
 ]
+var g_3dRes = 1 // Scale denominator for 3D rendering
+var g_screenRes
 var g_lastLoadUpdateTime = 0
 var g_needWritePrefs = false // Set when a menu item wants to save itself as an editor preference
 var g_photoMode = false // Whether the editor is in photo mode
 var g_currentMapName = ""
 var g_dirtyMap = false // Whether the open map has unsaved changes
+var g_dirtyObjLabels = false // Whether the object labels' g_cell indices may be inaccurate
 var g_requestShallowStackAction = "" // Set this to queue a function that needs to run from as shallow a stack as possible
 array g_worldLights[0] // Easy direct access to world lights so they can be disabled when opening the object menu
 array g_debugLines[0] // Array of debug lines to check for deletion every frame
@@ -4985,6 +5126,9 @@ var i
 for i = 0 to len(g_cDat) loop
 	g_cDat[i] = g_btn
 repeat
+
+var g_framebuffer
+initEd()
 
 	// ----------------------------------------------------------------
 	// EDITOR MENU ARRAYS
@@ -6228,6 +6372,70 @@ g_menu = [
 				]
 			],
 			[
+				.text = "3D rendering scale (Full resolution)",
+				.action = "",
+				.selAction = "",
+				.active = true,
+				.sel = false,
+				.clicked = false,
+				.submenu = [
+					[
+						.text = "* Full resolution",
+						.action = "3d1",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "1/2 resolution",
+						.action = "3d2",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "1/4 resolution",
+						.action = "3d4",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "1/8 resolution",
+						.action = "3d8",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "1/16 resolution",
+						.action = "3d16",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					],
+					[
+						.text = "1/32 resolution",
+						.action = "3d32",
+						.selAction = "",
+						.active = true,
+						.sel = false,
+						.clicked = false,
+						.submenu = -1
+					]
+				]
+			],
+			[
 				.text = "Photo mode (" + getBoolStr(g_photoMode) + ")",
 				.action = "photomode",
 				.selAction = "",
@@ -6343,9 +6551,12 @@ g_menu = [
 	// ----------------------------------------------------------------
 	// EDITOR MAIN EXECUTION LOOP
 
-initEd()
-
 loop
+	if g_3dRes > 1 then
+		setMode(gwidth() / g_3dRes, gheight() / g_3dRes)
+		setDrawTarget(g_framebuffer)
+	endif
+	
 	updateBlink()
 	g_kb = getKeyboardBuffer()
 	handleInput()
@@ -6359,6 +6570,13 @@ loop
 	endif
 	
 	drawObjects()
+	
+	if g_3dRes > 1 then
+		setMode(g_screenRes.x, g_screenRes.y)
+		setDrawTarget(framebuffer)
+		drawImage(g_framebuffer, {0, 0, gwidth() / g_3dRes, gheight() / g_3dRes}, 
+			{0, 0, gwidth(), gheight()})
+	endif
 	
 	if !g_photoMode then
 		updateLightSpr()
@@ -6409,9 +6627,9 @@ endStruct
 
 // Wraps functions that differ between the editor and the core loader,
 // which allows the editor code to be deleted without throwing errors.
-function edFunction(ref _in, _funcName, _argArr)
+function coreLoader(ref _in, _funcName, _argArr)
 	if _funcName == "promptObjDefRelink" then
-		promptObjDefRelink(_in, _argArr[0], _argArr[1])
+		promptObjDefRelink(_in, _argArr[0], _argArr[1], _argArr[2])
 	endif
 	
 	loop if _funcName == "isEditor" then
@@ -6422,7 +6640,7 @@ function edFunction(ref _in, _funcName, _argArr)
 		break endif
 	if _funcName == "worldPosToScreenPos" then
 		_in = worldPosToScreenPos(_argArr[0], _argArr[1], _argArr[2], 
-			_argArr[3], _argArr[4])
+			_argArr[3], _argArr[4], _argArr[5], _argArr[6])
 		break endif
 	if _funcName == "getGrpLightsTypes" then
 		_in = getGrpLightsTypes(_argArr[0])
@@ -6438,7 +6656,11 @@ return _in
 
 // Initializes the editor, loads object definitions, and loads a map.
 function initEd()
-	g_mapFile = open() // Subsequent opens must use openFile() rather than open() to respect g_freezeFile's state
+	setMode(1280, 720)
+	setSpriteCamera(gwidth() / 2, gheight() / 2)
+	g_framebuffer = createImage(1, 1, 0)
+	initScreenRes()
+	g_mapFile = open() // Subsequent opens must use openFile() rather than open() to respect g_safeMode's state
 	//clearFile(g_mapFile) // Uncomment to fully erase saved data on startup
 	//debugFile(g_mapFile) // Uncomment to view file before launching the editor
 	
@@ -6447,13 +6669,13 @@ function initEd()
 	showSplash(4) // Change argument to 0 to disable splash screen
 	
 	// Arrange model data in a code-readable format
-	g_loadResult = loadObjDefs(g_mapFile)
+	var loadResult = loadObjDefs(g_mapFile)
 	removeLoadSpr()
-	g_obj = g_loadResult.obj
-	g_bankName = g_loadResult.bankName
-	g_missingRefs = loadMergedObjDefs(g_mapFile)
+	g_obj = loadResult.obj
+	g_bankName = loadResult.bankName
+	var missingRefs = loadMergedObjDefs(g_mapFile)
 	removeLoadSpr()
-	resolveMergedObjDefChanges(g_missingRefs)
+	resolveMergedObjDefChanges(g_mapFile, missingRefs)
 	confirmUniqueDefNames()
 	writeObjDefs(g_mapFile)
 	
@@ -6471,14 +6693,12 @@ function initEd()
 			initEdForClearedMap()
 			g_currentMapName = queuedMap
 			var mapResult = readMap(g_mapFile, g_currentMapName)
+			g_sndQueue = getLoadedAudio()
 			initEdForLoadedMap(mapResult)
 		endif
 	endif
 	
 	initCellOutlines()
-	
-	g_loadResult = -1 // Free memory
-	g_missingRefs = -1 // Free memory
 	closeFile(g_mapFile)
 return void
 
@@ -6560,6 +6780,7 @@ function initScreenRes()
 	textSize(g_menuTextSize)
 	g_statusTextH = gheight() / 36
 	g_statusBarH = g_statusTextH * 3
+	g_screenRes = {gwidth(), gheight()}
 return void
 
 // Clears and resets the g_cell array for map initialization.
@@ -6583,7 +6804,7 @@ function initSel()
 return void
 
 // Resets camera to default values.
-function initCam()
+function initCam(_initAuxCollider)
 	g_cam.pos = {0, 1, 1}
 	g_cam.dir = {0, 1, 2}
 	g_cam.fwd = {0, 0, 1}
@@ -6594,7 +6815,7 @@ function initCam()
 	g_cam.cellPos = getCellPosFromPos(g_cam.pos)
 	g_cam.lastColContext = initColContext(g_cam.lastColContext, g_cam.collider, 
 		g_cam.pos, g_cam.fwd, g_cam.up, {0.3, 0.3, 0.3}, 4,  
-		1, {0, 0, 0}, 0.001, true, true, true)
+		1, {0, 0, 0}, 0.001, _initAuxCollider, true, true)
 return void
 
 // Instantiates the compound wireframe object that outlines the current grid space.
@@ -6617,7 +6838,8 @@ function initCur()
 	g_cur.posMode = 0
 	g_cur.scale = {1, 1, 1}
 	g_cur.pos = {0.5, 0.5, 0.5}
-	g_cur.pos2d = worldPosToScreenPos({0.5, 0.5, 0.5}, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
+	g_cur.pos2d = worldPosToScreenPos({0.5, 0.5, 0.5}, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov, 
+		gwidth(), gheight())
 	g_cur.fwd = {0, 0, 1}
 	g_cur.up = {0, 1, 0}
 	g_cur.cell = -1
@@ -6642,7 +6864,7 @@ function debugFile(_file)
 	var c = controls(0)
 	c = applyKb(c, g_bind.menu).c
 	
-	textSize(g_dialogTextSize)
+	textSize(g_dialogTextSize * 0.66)
 	var viewLine = 0
 	var viewH = tHeight()
 	var scrollW = textWidth("*")
@@ -6669,7 +6891,7 @@ function debugFile(_file)
 		scroll = round((firstChunkIdx / lastChunkIdx) * viewH)
 		lineMov = 0
 		
-		printAt(0, scroll, "*")
+		printAt(0, scroll, chr(9674))
 		ink(g_theme.bgSelCol * 0.7)
 		drawFileOverview(secMap, scrollW)
 		
@@ -6796,7 +7018,7 @@ return col
 	// ----------------------------------------------------------------
 	// EDITOR FILE WRITING
 
-// If g_freezeFile is true, g_mapFile will remain open and will be passed
+// If g_safeMode is true, g_mapFile will remain open and will be passed
 // to anything requesting a file open instead of newly opening the file. Because 
 // the file never closes, writes won't persist on program close, and because 
 // g_mapFile is only opened once, the file will never be reloaded from its saved 
@@ -6805,7 +7027,7 @@ return col
 function openFile()
 	var file
 	
-	if g_freezeFile then
+	if g_safeMode then
 		file = g_mapFile
 	else
 		file = open()
@@ -6827,10 +7049,10 @@ function closeFileIfNeeded(_file, _needed)
 	endif
 return void
 
-// Closes file, but only if allowed by g_freezeFile.
+// Closes file, but only if allowed by g_safeMode.
 function closeFile(_file)
 	var closed = false
-	if !g_freezeFile then
+	if !g_safeMode then
 		close(_file)
 		closed = true
 	endif
@@ -6845,18 +7067,14 @@ function openFileEndBuffer(_file, _idx)
 	
 	_idx = min(_idx, unalloIdx)
 	seek(_file, _idx)
-return read(_file, unalloIdx - _idx)
+return read(_file, 99999999999999) // Read the entire rest of the file
 
 // Writes the file end buffer data back to the end of the file once other writes are done.
 function closeFileEndBuffer(_file, _buffer, _idx)
 	seek(_file, _idx)
-	
 	var lastData = len(_buffer) - 1
+	
 	if lastData > -1 then
-		if lastData < len(_buffer) - 1 then
-			_buffer = strSlice(_buffer, 0, lastData + 1)
-		endif
-		
 		write(_file, _buffer)
 		
 		// Any data remaining in the file after the write point is garbage
@@ -6923,9 +7141,24 @@ function deleteObjMap(_file, _mapName, _needFileOpen)
 		sectionIdx = findFileSection(_file, "objectMap" + _mapName)
 	endif
 	
+	if sectionIdx.start < 0 then
+		sectionIdx = findFileSection(_file, "mapProperties" + _mapName)
+	endif
+	
 	if sectionIdx.start >= 0 then
-		var propIdx = findFileSection(_file, "mapProperties" + _mapName)
-		writeFileSegment(_file, "", sectionIdx.start, propIdx.end)
+		var stopIdx = findFileSection(_file, "mapProperties" + _mapName)
+		
+		if stopIdx.start < 0 then
+			stopIdx = findFileSection(_file, "objectMap" + _mapName)
+		endif
+		
+		if stopIdx.start < 0 then
+			stopIdx = findFileSection(_file, "cellMap" + _mapName)
+		endif
+		
+		if stopIdx.start >= 0 then
+			writeFileSegment(_file, "", sectionIdx.start, stopIdx.end)
+		endif
 	endif
 	
 	closeFileIfNeeded(_file, _needFileOpen)
@@ -7029,7 +7262,6 @@ function bufferAndDeleteMapObjInFile(_file, _mapName, _objName, _shouldBuffer)
 	var blockIdx
 	var getLights
 	var genResult
-	var actObj
 	var lightObj
 	
 	while inFileSection(chunk) loop
@@ -7048,7 +7280,6 @@ function bufferAndDeleteMapObjInFile(_file, _mapName, _objName, _shouldBuffer)
 				if _shouldBuffer then
 					// First entry in genObj[idx] is the object, subsequent entries are its lights
 					if genResult.obj.brightness < 0 then
-						actObj = createActiveFromGenericObj(genResult.obj)
 						genObj = push(genObj, [ .obj = genResult.obj, .lights = [] ])
 						getLights = true
 					else
@@ -7465,6 +7696,7 @@ function resolveMapLoadAction()
 		
 		g_currentMapName = queuedMap
 		var mapResult = readMap(mapFile, g_currentMapName)
+		g_sndQueue = getLoadedAudio()
 		initEdForLoadedMap(mapResult)
 		
 		var menuIdx = findMenuEntry(g_menu, "Background")
@@ -7479,6 +7711,7 @@ function initEdForLoadedMap(_mapLoadResult)
 	g_lightIconLoader.show = []
 	g_lightIconLoader.hide = []
 	removeLoadSpr()
+	g_dirtyObjLabels = false
 	
 	if _mapLoadResult.redefHappened then
 		g_dirtyMap = true
@@ -7490,6 +7723,8 @@ function initEdForLoadedMap(_mapLoadResult)
 	g_bg.col = _mapLoadResult.props.bg.col
 	g_cam.pos = _mapLoadResult.props.cam.pos
 	g_cam.fwd = _mapLoadResult.props.cam.fwd
+	g_cam.lastColContext.fwd = g_cam.fwd
+	g_cam.lastColContext.up = g_cam.up
 	g_cam.up = _mapLoadResult.props.cam.up
 	g_cur.pos = _mapLoadResult.props.cur.pos
 	
@@ -7500,7 +7735,10 @@ function initEdForLoadedMap(_mapLoadResult)
 	g_cur.cellPos = getCellPosFromPos(g_cur.pos)
 	pruneLightIcons()
 	
-	updateCamCollisions(true)
+	if g_cam.collisionMode then
+		updateCamCollisions(true)
+	endif
+	
 	updateCurContexts(true)
 	initCellOutlines()
 	
@@ -7573,14 +7811,6 @@ function readEdPrefs(_file)
 		repeat
 	repeat
 return void
-
-// Returns the end-of-file index or the index of the first unallocated space.
-function getEofIdx(_file)
-	var eof = findFileChar(_file, chr(127))
-	if eof < 0 then
-		eof = len(_file)
-	endif
-return eof
 
 // Object definitions are saved to file under their names. Their bank and index
 // numbers are dynamically generated on program load and are not saved, so they must
@@ -7869,7 +8099,15 @@ function encodeObjLights(_obj, _encChildLights, _writeStr)
 	
 	if _encChildLights then
 		for i = 0 to len(_obj.children) loop
-			if decodeBank(-1, _obj.children[i].bankIdx) >= 0 then
+			var bank = -1
+			
+			// Some relink situations have children that can't be resolved, 
+			// which we know is the case if .bankIdx contains its name
+			if !len(_obj.children[i].bankIdx) then
+				bank = decodeBank(-1, _obj.children[i].bankIdx)
+			endif
+			
+			if bank >= 0 then
 				_writeStr = encodeObjLights(_obj.children[i], _encChildLights, _writeStr)
 			endif
 		repeat
@@ -7883,6 +8121,11 @@ function encodeMapProperties(_file, _mapName, _ver)
 		+ chr(10) + "Writing map properties ...", true, false, false)
 		
 	var sectionIdx = findFileSection(_file, "mapProperties" + _mapName)
+	if sectionIdx.start < 0 then
+		sectionIdx.start = getEofIdx(_file)
+		sectionIdx.end = sectionIdx.start
+	endif
+	
 	var propStr = sectionStr("mapProperties" + _mapName + _ver)
 	propStr += blockStr("")
 	propStr += unitStr("")
@@ -8538,14 +8781,6 @@ function wrapIncClamp(_num, _min, _max)
 	endif
 return _num
 
-// Rounds each element of a vector to the closest multiple of another number (_mult), 
-// with the multiplication sequence offset by the given amount (_offset).
-function roundVec3ToMultiple(_v, _mult, _offset)
-	_v[0] = roundToMultiple(_v[0], _mult, _offset)
-	_v[1] = roundToMultiple(_v[1], _mult, _offset)
-	_v[2] = roundToMultiple(_v[2], _mult, _offset)
-return _v
-
 // For an array of grid bits, sets the given bit.
 function bitSetLong(_bitIntArr, _bitIdx, _val)
 	var intIdx = floor(_bitIdx / g_intLen)
@@ -8568,18 +8803,6 @@ function bitAndLong(_bitIntArr1, _bitIntArr2)
 	repeat
 return _bitIntArr1
 
-// Compact if statement that returns argument 2 or 3 depending on the truth of
-// argument 1.
-function ifElse(_cond, _if, _else)
-	var result
-	
-	if _cond then
-		result = _if
-	else
-		result = _else
-	endif
-return result
-
 	// ----------------------------------------------------------------
 	// EDITOR ARRAY FUNCTIONS
 
@@ -8599,15 +8822,6 @@ function containsAtSubIdx(_arr, _item, _subIdx, _castToStr)
 	endif
 return found
 
-// Is _obj present in the array?
-function containsMapObj(_arr, _obj)
-	var found = false
-	
-	if findMapObj(_arr, _obj) > -1 then
-		found = true
-	endif
-return found
-
 // When considering possible matches in _arr, tries to match _item with
 // _arr[i][_subIdx] instad of _arr[i].
 function findAtSubIdx(_arr, _item, _subIdx)
@@ -8622,20 +8836,6 @@ function findAtSubIdx(_arr, _item, _subIdx, _castToStr)
 			_arr[i][_subIdx] = str(_arr[i][_subIdx])
 		endif
 		if _arr[i][_subIdx] == _item then
-			idx = i
-			break
-		endif
-	repeat
-return idx
-
-// Looks for _obj in _arr. Can't be done with the normal find function because
-// mapObj needs a different equality check.
-function findMapObj(_arr, _obj)
-	var idx = -1
-	
-	var i
-	for i = 0 to len(_arr) loop
-		if mapObjEquals(_arr[i], _obj) then
 			idx = i
 			break
 		endif
@@ -8826,13 +9026,6 @@ function getType(_var)
 	repeat
 return type
 
-// Encloses _var in an array if it is not already an array.
-function encloseInArray(_var)
-	if getType(_var) != "array" then
-		_var = [ _var ]
-	endif
-return _var
-
 	// ----------------------------------------------------------------
 	// EDITOR VECTOR FUNCTIONS
 
@@ -8872,23 +9065,23 @@ function getScreenRange(_dist, _fov)
 return {scrX, scrY}
 
 // Projects world vector to screen postion.
-function worldPosToScreenPos(_worldPos, _camFwd, _camUp, _camPos, _camFov)
+function worldPosToScreenPos(_worldPos, _camFwd, _camUp, _camPos, _camFov, _scrW, _scrH)
 	var screenPos = {float_min, float_min}
 	var nearClip = 0.25
 	var camPoint = worldVecToLocalVec(_worldPos, _camFwd, _camUp, _camPos)
 	
 	if camPoint.z >= nearClip then
 		var height = 2 * tan(_camFov * 0.5)
-		var width = height * (gwidth() / gheight())
+		var width = height * (_scrW / _scrH)
 		
 		var posX = (camPoint.x / camPoint.z) / width
 		var posY = (camPoint.y / camPoint.z) / height
 		
-		posX += (gwidth() * 0.5) / gwidth()
-		posY += (gheight() * 0.5) / gheight()
+		posX += (_scrW * 0.5) / _scrW
+		posY += (_scrH * 0.5) / _scrH
 		
-		posX = (1 - posX) * gwidth()
-		posY = (1 - posY) * gheight()
+		posX = (1 - posX) * _scrW
+		posY = (1 - posY) * _scrH
 		screenPos = {posX, posY}
 	endif
 return screenPos
@@ -8971,30 +9164,6 @@ function getSnapToDeg(_sign, _axis, _snapAmount, _fwd, _up)
 	endif
 return deg
 
-// Lerp both a forward and an up vector at the same time. Forward's rotation axis is calculated, 
-// and up's rotation axis is forward.
-function lerpDirVecs(_fwd1, _up1, _fwd2, _up2, _t)
-	var axis = safeCross(_fwd1, _fwd2)
-	
-	if axis == {0, 0, 0} then
-		axis = _up1
-	endif
-	
-	var fwdDeg = getAngleBetweenVecs(_fwd1, _fwd2)
-	
-	var targUp = axisRotVecBy(_up1, axis, fwdDeg)
-	var upDeg = getAngleBetweenVecs(targUp, _up2)
-	
-	var newFwd = axisRotVecBy(_fwd1, axis, fwdDeg * _t)
-	var newUp = axisRotVecBy(_up1, axis, fwdDeg * _t)
-	newUp = axisRotVecBy(newUp, newFwd, upDeg * _t)
-	
-	var result = [
-		.fwd = newFwd,
-		.up = newUp
-	]
-return result
-
 	// ----------------------------------------------------------------
 	// EDITOR DIALOG BOXES
 
@@ -9024,7 +9193,17 @@ return void
 
 // Shows a graphical color picker that returns the selected color and the 
 // accept/cancel state.
-function showColorPicker(_col, _showAlpha)
+function showColorPicker(_col, _showAlpha, _allowCustomMax)
+	var maxVal = {1, 1, 1, 1}
+	
+	if _allowCustomMax then
+		var i
+		for i = 0 to 3 loop
+			if _col[i] > maxVal[i] then
+				maxVal[i] = ceil(_col[i])
+			endif
+		repeat
+	endif
 	// Discard alpha data.
 	if !_showAlpha and _col.a < 1 then
 		_col.a = 1
@@ -9038,6 +9217,9 @@ function showColorPicker(_col, _showAlpha)
 	var bPos = gPos + {0, gheight() / 10}
 	var aPos = bPos + {0, gheight() / 10}
 	var colPos = aPos + {0, gheight() / 10}
+	textSize(g_menuTextSize * 0.75)
+	var incTextW = textWidth("Increase range (R)")
+	var spacer = gheight() / 256
 	textSize = g_menuTextSize
 	var selItem = 0
 	var result = [
@@ -9066,9 +9248,9 @@ function showColorPicker(_col, _showAlpha)
 		
 		if menuDirInputStarted(c, kbResult.kbActive) then
 			if g_cDat[g_cIdx.lxy].count > 1 then
-				moveRate = 0.05
+				moveRate = 0.05 * maxVal[int(min(selItem, 3))]
 			else
-				moveRate = 0.01
+				moveRate = 0.01 * maxVal[int(min(selItem, 3))]
 			endif
 			
 			loop if c.ly < -0.3 or c.down then
@@ -9102,11 +9284,12 @@ function showColorPicker(_col, _showAlpha)
 				break endif
 			if c.lx > 0.3 or c.right then
 				if selItem <= 3 then
-					if _col[selItem] < 1 then
+					if _col[selItem] < maxVal[selItem] 
+							and !g_cDat[g_cIdx.l].held and !g_cDat[g_cIdx.r].held then
 						sndCursor()
 					endif
 					
-					_col[selItem] = clamp(_col[selItem] + moveRate, 0, 1)
+					_col[selItem] = clamp(_col[selItem] + moveRate, 0, maxVal[selItem])
 				else if selItem == 4 then
 					selItem += 1
 					sndMenuMove()
@@ -9114,11 +9297,12 @@ function showColorPicker(_col, _showAlpha)
 				break endif
 			if c.lx < -0.3 or c.left then
 				if selItem <= 3 then
-					if _col[selItem] > 0 then
+					if _col[selItem] > 0 
+							and ((!g_cDat[g_cIdx.l].held and !g_cDat[g_cIdx.r].held) or maxVal[selItem] <= 1) then
 						sndCursor()
 					endif
 					
-					_col[selItem] = clamp(_col[selItem] - moveRate, 0, 1)
+					_col[selItem] = clamp(_col[selItem] - moveRate, 0, maxVal[selItem])
 				else if selItem == 5 then
 					selItem -= 1
 					sndMenuMove()
@@ -9133,21 +9317,24 @@ function showColorPicker(_col, _showAlpha)
 			sliderLen,
 			selItem == 0,
 			_col.x,
-			"Red   | "
+			"Red   | ",
+			maxVal.r
 		)
 		createSlider(
 			gPos, 
 			sliderLen,
 			selItem == 1,
 			_col.y,
-			"Green | "
+			"Green | ",
+			maxVal.g
 		)
 		createSlider(
 			bPos, 
 			sliderLen,
 			selItem == 2,
 			_col.z,
-			"Blue  | "
+			"Blue  | ",
+			maxVal.b
 		)
 		
 		if _showAlpha then
@@ -9156,7 +9343,8 @@ function showColorPicker(_col, _showAlpha)
 				sliderLen,
 				selItem == 3,
 				_col.a,
-				"Alpha  | "
+				"Alpha  | ",
+				maxVal.a
 			)
 		endif
 		
@@ -9181,6 +9369,15 @@ function showColorPicker(_col, _showAlpha)
 			ifElse(selItem == 4, g_theme.textSelCol, g_theme.textCol), "Cancel")
 		drawText(buttonPos[1].x, buttonPos[1].y, g_menuTextSize, 
 			ifElse(selItem == 5, g_theme.textSelCol, g_theme.textCol), "Accept")
+		
+		if _allowCustomMax and selItem <= 2 then
+			if maxVal[selItem] > 1 then
+				drawText(pos.x + spacer, pos.y + spacer, g_menuTextSize * 0.75, g_theme.textCol, "Decrease range (L)")
+			endif
+			
+			drawText(pos.x - spacer + posExt.x - incTextW, pos.y + spacer, g_menuTextSize * 0.75, g_theme.textCol, "Increase range (R)")
+		endif
+		
 		update()
 		
 		if c.b and !g_cDat[g_cIdx.b].held then
@@ -9200,6 +9397,31 @@ function showColorPicker(_col, _showAlpha)
 		else if !c.a then
 			g_cDat[g_cIdx.a].held = false
 		endif endif
+		
+		if _allowCustomMax and selItem <= 2 and buttonInputStarted(c.r, g_cIdx.r, 1, kbResult.kbActive) then
+			var moveRate = 1
+			
+			if g_cDat[g_cIdx.r].count > 1 then
+				moveRate = 5
+			endif
+			
+			maxVal[selItem] += moveRate
+			sndCursor()
+		endif
+		
+		if _allowCustomMax and selItem <= 2 then
+			if maxVal[selItem] > 1 and buttonInputStarted(c.l, g_cIdx.l, 1, kbResult.kbActive) then
+				var moveRate = 1
+				
+				if g_cDat[g_cIdx.l].count > 1 then
+					moveRate = 5
+				endif
+				
+				maxVal[selItem] = max(maxVal[selItem] - moveRate, 1)
+				_col[selItem] = min(_col[selItem], maxVal[selItem])
+				sndCursor()
+			endif
+		endif
 	repeat
 	
 	if result.accept then
@@ -9212,11 +9434,11 @@ function showColorPicker(_col, _showAlpha)
 return result
 
 // Creates a visual slider. _selPos is a value from 0 to 1.
-function createSlider(_pos, _len, _isSel, _selPos, _text)
+function createSlider(_pos, _len, _isSel, _selPos, _text, _selMax)
 	textSize(g_menuTextSize)
 	var slider
 	var lineH = gheight() / 128
-	var sliderPos = {_len * _selPos + _pos.x, _pos.y}
+	var sliderPos = {_len * (_selPos / _selMax) + _pos.x, _pos.y}
 	
 	var sliderCol
 	if _isSel then
@@ -9236,7 +9458,8 @@ function createSlider(_pos, _len, _isSel, _selPos, _text)
 	)
 	
 	drawText(_pos.x, _pos.y + gheight() / 32, g_menuTextSize, g_theme.textCol, _text)
-	drawText(_pos.x + textWidth(_text), _pos.y + gheight() / 32, g_menuTextSize, g_theme.textCol, floatToStr(_selPos, 2))
+	drawText(_pos.x + textWidth(_text), _pos.y + gheight() / 32, g_menuTextSize, g_theme.textCol, 
+			floatToStr(_selPos, 2) + " / " + floatToStr(_selMax, 2))
 return slider
 
 // Simple non-scrolling text box without response prompt. Can be dismissed either 
@@ -9402,7 +9625,7 @@ return void
 
 // Presents relinking options for a deleted object definition.
 // _context can be 0 (prompt on boot) or 1 (prompt on map load).
-function promptObjDefRelink(ref _in, _delName, _context)
+function promptObjDefRelink(ref _in, _file, _delName, _context)
 	_in = [
 		.bank = -1,
 		.idx = -1,
@@ -9474,7 +9697,7 @@ function promptObjDefRelink(ref _in, _delName, _context)
 			)
 			
 			if scopeResult.idx then
-				delInfo = [ .bank = -1, .idx = -1, .name = _delName ]
+				delInfo = [ [ .bank = -1, .idx = -1, .name = _delName ] ]
 				
 				if relinkResult.idx == 0 then // No relink
 					delInfo = getAllObjDefDeletions(delInfo)
@@ -9489,7 +9712,7 @@ function promptObjDefRelink(ref _in, _delName, _context)
 					removeObjDef(remove(delInfo, 0))
 					
 					if scopeResult.idx == 2 then
-						removeObjInMaps(_delName, objDefResult.changedDefs, [ g_currentMapName ])
+						removeObjInMaps(_file, _delName, objDefResult.changedDefs, [ g_currentMapName ], false)
 					endif
 				else // Relink
 					repDef = activeFromObjDef(bankIdx.bank, bankIdx.idx)
@@ -9504,8 +9727,8 @@ function promptObjDefRelink(ref _in, _delName, _context)
 					endif
 					
 					if scopeResult.idx == 2 then
-						replaceObjInMaps(_delName, repDef, objDefResult.changedDefs, 
-							mergedResult.idx == 1, [ g_currentMapName ])
+						replaceObjInMaps(_file, _delName, repDef, objDefResult.changedDefs, 
+							mergedResult.idx == 1, [ g_currentMapName ], false)
 					endif
 					
 					_in.bank = bankIdx.bank
@@ -9520,6 +9743,10 @@ function promptObjDefRelink(ref _in, _delName, _context)
 			endif
 		endif
 	repeat
+	
+	if _context then
+		rebuildAllMergedExts()
+	endif
 return _in
 
 // Displays a scrollable list from which a selection can be made.
@@ -9592,7 +9819,7 @@ function promptList(_lines, _promptLines)
 		repeat
 		
 		if needScroll then
-			printAt(borderSizeX, headerH + getScroll(len(_lines), viewLine, viewH), "*")
+			printAt(borderSizeX, headerH + getScroll(len(_lines), viewLine, viewH), chr(9674))
 		endif
 		
 		for i = viewLine to maxLine + 1 loop
@@ -9690,7 +9917,7 @@ function showScrollText(_text)
 		c = applyKb(c, g_bind.menu).c
 		
 		if needScroll then
-			printAt(borderSizeX, borderSizeY + getScroll(lineCount, viewLine, viewH), "*")
+			printAt(borderSizeX, borderSizeY + getScroll(lineCount, viewLine, viewH), chr(9674))
 		endif
 		
 		lineMov = 0
@@ -10240,6 +10467,19 @@ function rebuildMergedObjExt(_obj, _grpExt)
 	repeat
 return _grpExt
 
+// Rebuilds extents for all existing merged object definitions.
+function rebuildAllMergedExts()
+	var i
+	var j
+	for i = 0 to len(g_obj) loop
+		for j = 0 to len(g_obj[i]) loop
+			if len(g_obj[i][j].children) then
+				g_obj[i][j].ext = rebuildMergedObjExt(g_obj[i][j])
+			endif
+		repeat
+	repeat
+return void
+
 // Returns the extent of the loaded map.
 function getMapExt()
 	var i
@@ -10385,8 +10625,6 @@ function removeObjDef(_delArr, _objMenu)
 return removeObjDef(_delArr, _objMenu, true)
 
 function removeObjDef(_delArr, _objMenu, _updateObjMenu)
-	_delArr = encloseInArray(_delArr)
-	
 	var i
 	var bankIdx
 	var j
@@ -10472,10 +10710,10 @@ function resolveDelDefMenuAction(_action)
 			
 			var i
 			for i = 0 to len(template) loop
-				template[i] = updateObjBankIdx(template[i], del[0]).obj
+				template[i] = updateObjBankIdx(template[i], [ del[0] ]).obj
 			repeat
 		else
-			templateObj = updateObjBankIdx(templateObj, del[0]).obj
+			templateObj = updateObjBankIdx(templateObj, [ del[0] ]).obj
 			template = push(template, templateObj)
 		endif
 	endif
@@ -10497,46 +10735,45 @@ function resolveDelDefMenuAction(_action)
 	
 	resolveObjDefDeletionForLoadedMap(del, changedDefs, delAction, templateObj)
 	
+	var file = openFile()
+	
 	// Unmerge and replace only check the first element of del because
 	// only outright removal has the potential to create additional deletions
 	// by leaving merged objects that now contain no object refs.
 	loop if _action == "deldefunmergeallmaps" then
-		unmergeObjInMaps(del[0].name, del[0].def)
+		unmergeObjInMaps(file, del[0].name, del[0].def, [], false)
 		break endif
 	if _action == "deldefreplaceallmaps" then
-		replaceObjInMaps(del[0].name, g_activeObj, changedDefs, !g_cur.isMerged)
+		replaceObjInMaps(file, del[0].name, g_activeObj, changedDefs, !g_cur.isMerged, [], false)
 		break endif
 	if _action == "deldefremoveallmaps" then
 		var i
 		for i = 0 to len(del) loop
-			removeObjInMaps(del[i].name, changedDefs)
+			removeObjInMaps(file, del[i].name, changedDefs, [], false)
 		repeat
 		break
 	endif break repeat
 	
-	writeObjDefs()
+	rebuildAllMergedExts()
+	writeObjDefs(file, false)
+	closeFile(file)
+	updateCurContexts(true)
 return void
 
 // Rebuilds any merged object definitions that have changed because of changes to a 
 // child definition.
-function resolveMergedObjDefChanges(_missingRefs)
+function resolveMergedObjDefChanges(_file, _missingRefs)
 	var timer = time()
 	showLoadBox("Resolving changes to merged object definitions ...", true, false, false)
 	
 	var i
 	for i = 0 to len(_missingRefs) loop
-		promptObjDefRelink(-1, _missingRefs[i], 0)
+		promptObjDefRelink(-1, _file, _missingRefs[i], 0)
 	repeat
 	
 	// Rebuild merged extents in case base filepaths were changed
-	var j
-	for i = 0 to len(g_obj) loop
-		for j = 0 to len(g_obj[i]) loop
-			if len(g_obj[i][j].children) then
-				g_obj[i][j].ext = rebuildMergedObjExt(g_obj[i][j])
-			endif
-		repeat
-	repeat
+	// or relinking changed the involved objects
+	rebuildAllMergedExts()
 	
 	removeLoadSpr()
 return void
@@ -10549,8 +10786,6 @@ return updateObjBankIdx(_obj, _delBankIdx, true)
 function updateObjBankIdx(_obj, _delBankIdx, _recur)
 	var idxChanged = false
 	var bankChanged = false
-	
-	_delBankIdx = encloseInArray(_delBankIdx)
 	
 	var i
 	var bankIdx
@@ -10818,7 +11053,7 @@ function getAllObjDefDeletions(_del)
 					
 					// Restart the def check to include the newly added deletion
 					i = -1
-					j = -1
+					break
 				endif
 			endif
 			
@@ -10835,9 +11070,6 @@ return _del
 function resolveObjDefDeletionForObjDefs(_delInfoArr, _repObjArr)
 	var changedDefs = []
 	var changedIdxs = []
-	
-	_delInfoArr = encloseInArray(_delInfoArr)
-	
 	var i
 	var j
 	var defHasChanged
@@ -10851,7 +11083,6 @@ function resolveObjDefDeletionForObjDefs(_delInfoArr, _repObjArr)
 		for j = 0 to len(g_obj[i]) loop
 			defHasChanged = false
 			idxHasChanged = false
-			extHasChanged = false
 			
 			k = 0
 			while k < len(g_obj[i][j].children) loop
@@ -10883,24 +11114,14 @@ function resolveObjDefDeletionForObjDefs(_delInfoArr, _repObjArr)
 					idxHasChanged = true
 				endif endif
 				
-				if repResult.needExtUpdate then
-					extHasChanged = true
-				endif
-				
 				k += 1
 			repeat
 			
-			loop if defHasChanged then
-				g_obj[i][j].ext = rebuildMergedObjExt(g_obj[i][j])
+			if defHasChanged then
 				changedDefs = push(changedDefs, [ .bank = i, .idx = j, .name = g_obj[i][j].name ])
-				break endif
-			if idxHasChanged then
+			else if idxHasChanged then
 				changedIdxs = push(changedIdxs, [ .bank = i, .idx = j ])
-				break endif
-			if extHasChanged then
-				g_obj[i][j].ext = rebuildMergedObjExt(g_obj[i][j])
-				break
-			endif break repeat
+			endif endif
 		repeat
 	repeat
 	
@@ -10976,45 +11197,13 @@ function replaceObjDefRecursive(_checkObj, _oldInfo, _newObjs, _returnObjs)
 			endif
 		repeat
 		
-		// If the object contains an old object or a replacement object, mark it
-		// to have its extent rebuilt. Note that we include replacement objects even
-		// though this wll trigger false positives because we need to accommodate the
-		// fact that when replaing a missing base object, the original base object
-		// becomes undetectable after the first replacement -- so to be safe, we just
-		// include everything that might once have been the missing object.
-		array involvedObjs[len(_newObjs)]
-		
-		for i = 0 to len(involvedObjs) loop
-			getMapObjName(mapObjName, _newObjs[i])
-			involvedObjs[i] = mapObjName
-		repeat
-		
-		for i = 0 to len(_oldInfo) loop
-			involvedObjs = push(involvedObjs, _oldInfo[i].name)
-		repeat
-		
-		var bank
-		decodeBank(bank, _checkObj.bankIdx)
-		var idx
-		decodeIdx(idx, _checkObj.bankIdx)
-		
-		var checkActive = activeFromObjDef(bank, idx)
-		for i = 0 to len(involvedObjs) loop
-			if objContains(checkActive, involvedObjs[i]) then
-				needExtUpdate = true
-				
-				break
-			endif
-		repeat
-		
 		retObjs = [ _checkObj ]
 	endif
 	
 	var result = [
 		.objs = retObjs,
 		.changed = isChanged,
-		.bankIdxChanged = bankIdxChanged,
-		.needExtUpdate = needExtUpdate
+		.bankIdxChanged = bankIdxChanged
 	]
 return result
 
@@ -11045,6 +11234,7 @@ function placeActive(_c)
 			updateCamCellOutlinePos()
 			
 			g_dirtyMap = true
+			g_dirtyObjLabels = true
 			sndMenuSel()
 		else if !_c.a then
 			g_cDat[g_cIdx.a].held = false
@@ -11259,6 +11449,7 @@ function edDeleteMapObj(_cell, _idx)
 	updateCamCellOutlinePos()
 	
 	g_dirtyMap = true
+	g_dirtyObjLabels = true
 return removedCells
 
 // Resets the editor after the map has been cleared.
@@ -11274,7 +11465,7 @@ function initEdForClearedMap(_resetActiveObj)
 		endif
 	repeat
 	
-	initCam()
+	initCam(false)
 	
 	if _resetActiveObj then removeActiveObj() endif
 	
@@ -11422,18 +11613,31 @@ function cloneObjLightDataRecursive(_origObj, ref _destObj, _includeSpr)
 	var j
 	
 	for i = 0 to len(_origObj.children) loop
-		decodeBank(origBank, _origObj.children[i].bankIdx)
+		// Some relink situations have children that can't be resolved, 
+		// which we know is the case if .bankIdx contains its name
+		if !len(_origObj.children[i].bankIdx) then
+			decodeBank(origBank, _origObj.children[i].bankIdx)
+		else
+			origBank = -1
+		endif
 		
 		// Don't nest ifs here to save stack space
 		for j = 0 to len(_destObj.children) loop
-			decodeBank(destBank, _destObj.children[j].bankIdx)
+			if !len(_destObj.children[j].bankIdx) then
+				decodeBank(destBank, _destObj.children[j].bankIdx)
+			else
+				destBank = -1
+			endif
 			
 			if !len(_destObj.children[j].lights) and !len(_origObj.children[i].lights) 
-					and origBank >= 0 and destBank >= 0 and mapObjEquals(_destObj.children[j], _origObj.children[i]) then
-				tempChild = _destObj.children[j]
-				cloneObjLightDataRecursive(_origObj.children[i], tempChild, _includeSpr)
-				_destObj.children[j] = tempChild
+					and origBank >= 0 and destBank >= 0 then
+				if mapObjEquals(_destObj.children[j], _origObj.children[i]) then
+					tempChild = _destObj.children[j]
+					cloneObjLightDataRecursive(_origObj.children[i], tempChild, _includeSpr)
+					_destObj.children[j] = tempChild
+				endif
 			endif
+			
 			if len(_destObj.children[j].lights) and len(_origObj.children[i].lights) and origBank >= 0 then
 				tempChild = _destObj.children[j]
 				cloneObjLightData(_origObj.children[i], tempChild, _includeSpr)
@@ -11518,7 +11722,7 @@ function updateGrpLightsSprPos(_obj, _fov)
 	for i = 0 to len(_obj.lights) loop
 		_obj.lights[i] = applyGrpPos(_obj.lights[i], _obj)
 		light2dPos = worldPosToScreenPos(_obj.lights[i].pos, 
-			g_cam.fwd, g_cam.up, g_cam.pos, _fov)
+			g_cam.fwd, g_cam.up, g_cam.pos, _fov, gwidth(), gheight())
 		setSpriteLocation(_obj.lights[i].spr, light2dPos)
 	repeat
 	
@@ -11851,7 +12055,7 @@ function setGrpLightsCol(_obj, _col)
 	for i = 0 to len(_obj.lights) loop
 		_obj.lights[i].col = _col
 		setLightColor(_obj.lights[i].light, _col)
-		if edFunction(-1, "isEditor", -1) then
+		if coreLoader(-1, "isEditor", -1) then
 			setSpriteColor(_obj.lights[i].spr, _col)
 		endif
 	repeat
@@ -13014,12 +13218,6 @@ function applyHighlightCol(_obj)
 	setGrpLightsSprCol(_obj, g_theme.bgCol)
 return void
 
-// Sets an object back to the default non-flashing color. An override color will replace the color of
-// any children below the point in the parent/child structure where it is given.
-function restoreDefaultObjCol(_obj)
-	setGroupMaterial(_obj, {-1, -1, -1, -1}, -1, -1, -1)
-return void
-
 // Applies selection flash to selected objects.
 function updateSelObj()
 	if g_blink.needUpdate then
@@ -13911,7 +14109,7 @@ function triggerMenuAction(_sel, _menu)
 					.idx = 3
 				]
 				
-				if g_dirtyMap then
+				id g_dirtyMap then
 					confirmPrompt = showUnsavedPrompt()
 				endif
 				
@@ -13930,6 +14128,7 @@ function triggerMenuAction(_sel, _menu)
 						initCellOutlines()
 						g_currentMapName = ""
 						g_dirtyMap = false
+						g_dirtyObjLabels = false
 						continue = false
 					else
 						continue = false
@@ -14009,11 +14208,10 @@ function triggerMenuAction(_sel, _menu)
 		if _sel.action == "about" then
 			showNoticeBox(
 				"Celqi - 3D Map Editor for FUZE"  + chr(10) +
-				"by P.M. Crockett (mozipha)" + chr(10) + chr(10) +
-				"Version 1.0.00" + chr(10) + chr(10) +
-				"Help documents available at https://github.com/pmcrockett/celqi/"+ chr(10) + chr(10) +
-				"To get in touch, message me via GitHub or via the FUZE forum:" + chr(10) +
-				"https://fuzearena.com/forum/user/mozipha/", 
+				"by Petra Crockett (mozipha)" + chr(10) + chr(10) +
+				"Version " + g_version + chr(10) + chr(10) +
+				"Full help documentation available at github.com/pmcrockett/Celqi."+ chr(10) + chr(10) +
+				"To get in touch, message me via GitHub, via the FUZE Discord server, or via the FUZE forum (https://fuzearena.com/forum/user/mozipha).", 
 				true, 0, true, false)
 				
 			result.needClose = true
@@ -14026,20 +14224,28 @@ function triggerMenuAction(_sel, _menu)
 			// I do elsewhere because this is a long text segment and we eventually 
 			// hit a recusion limit when using the + operator to join strings.
 			showScrollText(
-"Celqi - 3D Map Editor (1.0.00)
+"Celqi - 3D Map Editor for FUZE (1.0.00)
 
-This is the initial release, so it likely has bugs. Known issues:
+Known issues:
 
-* 1080p in docked mode is available in the Advanced menu and should theoretically work, but it hasn't been tested because Celqi is developed on a Switch Lite.
+* There is a limit to map complexity based on FUZE's internal variable limits. It is impossible to give specifics of max allowed size and object count because there are a lot of factors involved in Celqi's variable use, but the Castle Demo map represents the approximate maximum safe complexity. If too many objects are used, FUZE will return an error when placing an object or loading a map.
 
-* FUZE has a memory leak that occurs when a program is run repeatedly (see forum thread: https://fuzearena.com/forum/topic/1598/). This leak is particularly evident in Celqi because its codebase is so large. If Celqi's performance degrades or you get an 'Out of memory: Cannot create new context' error after running it multiple times, close and restart FUZE.
+* Mass selection may sometimes skip objects within the selection bounds.
 
-* Cone and pyramid shapes are not included in the Primitives bank because they have incorrect built-in collision boxes. If you want to enable them anyway, uncomment the related code in the loadPrimitiveDefs() function. Collision detection with cones and pyramids will be glitchy, but using them won't cause any other problems.
+* Rotation in 'Snap to' mode may exhibit strange behavior with some axis orientations.
 
-* Mass select sometimes won't include objects within the selection bounds.
+* At very small position snap values, the cursor position may sometimes get stuck.
 
-* Metallic and roughness values seem to apply only to primitive objects (i.e. those found in the Primitives bank). Celqi still allows editing these values for non-primitives because I'm not 100% certain there aren't any models they affect; just understand that it's normal for metallic and roughness not to affect models.
-"
+* Metallic and roughness material properties are editable on non-primative objects despite not applying to them.
+
+* Cone and pyramid primitives are not included in the primitives bank because FUZE's collision boxes for them are inaccurate, which in turn causes problems in Celqi's collision detection for them. To enable them anyway, uncomment the relevant code in the loadPrimitives() function. If enabled, collision detection for cones and pyramids will be glitchy, but no other problems will be caused.
+
+* Like the cone and pyramid primitives, some 3D models have incorrect collision data and may exhibit glitchy collision behavior if used. You can tell when an object's collision box is incorrect because it will appear incorrectly-sized and/or uncentered in the object menu. To examine an object's collision box more closely, use FUZE's showObjectBounds() function.
+
+* FUZE has a known issue (as of 3.1.0) in which available memory is gradually reduced when repeatedly running a program (see FUZE forum thread: 
+https://fuzearena.com/forum/topic/1598). Celqi is particularly affected by this memory issue because its codebase is so large. If performance degrades across multiple sessions, close and restart FUZE to reset the memory pool and restore performance.
+
+* Trying to place very large objects (e.g. Kat Deak/IcyRaceTrack) will cause Celqi to perform very poorly and/or freeze."
 			)
 			
 			result.needClose = true
@@ -14462,7 +14668,7 @@ This is the initial release, so it likely has bugs. Known issues:
 			var colResult = getObjCol(g_cur.activeObj)
 			
 			if colResult.colStr != "" then
-				var picked = showColorPicker(colResult.col, true)
+				var picked = showColorPicker(colResult.col, true, true)
 				picked.col = {picked.col.r, picked.col.g, picked.col.b, picked.col.a}
 				
 				if picked.accept == 1 then
@@ -14583,7 +14789,7 @@ This is the initial release, so it likely has bugs. Known issues:
 			var colResult = getObjLightCol(g_cur.activeObj)
 			
 			if colResult.colStr != "" then
-				var picked = showColorPicker(colResult.col, false)
+				var picked = showColorPicker(colResult.col, false, false)
 				picked.col = {picked.col.r, picked.col.g, picked.col.b, g_sprAlpha}
 				
 				if picked.accept == 1 then
@@ -14668,7 +14874,7 @@ This is the initial release, so it likely has bugs. Known issues:
 		
 		if strFind(_sel.action, "background") == 0 then
 			if getActionSubstr("background", _sel.action) == "tint" then
-				var colResult = showColorPicker(g_bg.col, false)
+				var colResult = showColorPicker(g_bg.col, false, false)
 				
 				if colResult.accept == 1 then
 					g_bg.col = colResult.col
@@ -14730,6 +14936,7 @@ This is the initial release, so it likely has bugs. Known issues:
 			
 			// Need to reset draw target after resolution change to ensure sprites will
 			// draw in the correct location.
+			setSpriteCamera(gwidth() / 2, gheight() / 2)
 			setDrawTarget(framebuffer)
 			
 			actionMenu[_sel.idxChain[len(_sel.idxChain) - 1]].text =
@@ -14743,6 +14950,43 @@ This is the initial release, so it likely has bugs. Known issues:
 			initScreenRes()
 			result.menu = updateMenuChainParent(_sel.idxChain, result.menu, actionMenu)
 			result.needClose = true
+		endif
+		
+		if strBeginsWith(_sel.action, "3d") then
+			var scaleDenom = getActionIdx("3d", _sel.action)
+			var actionMenu = getMenuFromChain(_menu, _sel.idxChain)
+			
+			var i
+			for i = 0 to len(actionMenu) loop
+				if strBeginsWith(actionMenu[i].text, "*") then
+					actionMenu[i].text = actionMenu[i].text[2:]
+					break
+				endif
+			repeat
+			
+			var menuStr = actionMenu[_sel.idx].text
+			actionMenu[_sel.idx].text = "* " + actionMenu[_sel.idx].text
+			g_3dRes = scaleDenom
+			freeImage(g_framebuffer)
+			
+			if !g_photoMode then
+				drawStatusBar()
+			endif
+			
+			drawImage(g_menuImg, 0, 0)
+			update()
+			
+			if g_3dRes > 1 then
+				g_framebuffer = createImage(gwidth() / g_3dRes, gheight() / g_3dRes, 0)
+			else
+				g_framebuffer = createImage(1, 1, 0)
+			endif
+			
+			result.menu = updateMenuChain(_sel.idxChain, _menu, actionMenu)
+			actionMenu = getParentFromChain(result.menu, _sel.idxChain)
+			actionMenu[_sel.idxChain[len(_sel.idxChain) - 2]].text =
+				"3D rendering scale (" + menuStr +")"
+			result.menu = updateMenuChainParent(_sel.idxChain, result.menu, actionMenu)
 		endif
 		
 		if _sel.action == "photomode" then
@@ -14816,7 +15060,9 @@ This is the initial release, so it likely has bugs. Known issues:
 		endif
 		
 		if _sel.action == "viewstats" then
+			showLoadBox("Loading stats ...", true, false, false)
 			showMapStats()
+			removeLoadSpr()
 			
 			result.needClose = true
 			break
@@ -15694,7 +15940,8 @@ function updateObjMenuGrid(_startRow, _rowLen, _colLen, _xInc, _yInc, _bank, _fo
 				])
 				
 			menuObjR = normalize(cross(menuObj[i][j].fwd, normalize(g_cam.pos + g_cam.up - menuObj[i][j].pos)))
-			screenR = worldPosToScreenPos(menuObj[i][j].pos + menuObjR * .5, g_cam.fwd, g_cam.up, g_cam.pos, _fov)
+			screenR = worldPosToScreenPos(menuObj[i][j].pos + menuObjR * .5, g_cam.fwd, g_cam.up, g_cam.pos, _fov, 
+				gwidth(), gheight())
 			
 			// Find a rough rotation to counteract FOV distortion at the screen edge
 			deg = getAngleBetweenVecs({screenR.x, screenR.y, 0} - {scrPos.x, scrPos.y, 0}, 
@@ -15966,6 +16213,17 @@ function updateObjMenu(_objMenu)
 			
 			// Open merged object menu
 			if len(selObj.children) and _objMenu.bank > g_lightBank then
+				// Disallow deleting and replacing with current brush if current brush
+				// contains a reference to the potentially deleted object 
+				if objContains(g_activeObj, g_obj[_objMenu.bank][getObjMenuIdxFromPos(_objMenu, _objMenu.selPos)].name) then
+					g_mergedObjMenu[2].submenu[2].active = false
+					g_mergedObjMenu[2].submenu[2].clicked = false
+					g_mergedObjMenu[2].submenu[2].submenu[0].sel = false
+					g_mergedObjMenu[2].submenu[2].submenu[1].sel = false
+				else
+					g_mergedObjMenu[2].submenu[2].active = true
+				endif
+				
 				_objMenu.mergedPos = selObj.scrPos
 				_objMenu.mergedImg = createMenuImg(_objMenu.mergedPos,
 					g_mergedObjMenu, true, _objMenu.txtSize, 1)
@@ -16715,6 +16973,28 @@ return void
 	// ----------------------------------------------------------------
 	// EDITOR INPUT STATE
 
+// Checks whether a button input should be repeated and, if so,
+// updates g_cDat with the input info and returns true.
+function buttonInputStarted(_btnVal, _btnIdx, _thresh, _kbActive)
+	var started = (_kbActive // _kbActive bypasses the repeat rate in order to use the keyboard's built-in repeat rate.
+		or (g_cDat[_btnIdx].count <= 1 and time() - g_cDat[_btnIdx].lastTime >= g_rateInit)
+		or (g_cDat[_btnIdx].count > 1 and time() - g_cDat[_btnIdx].lastTime >= g_rateRep))
+		and (_btnVal >= _thresh)
+	
+	if started then
+		g_cDat[_btnIdx] = updateInputStarted(_btnIdx)
+		
+		if _kbActive then
+			g_cDat[_btnIdx].kbHeld = true
+		endif
+	else if _btnVal < _thresh then
+		if !g_cDat[_btnIdx].kbHeld or time() - g_cDat[_btnIdx].lastTime > g_kbRateRep then
+			g_cDat[_btnIdx] = updateInputStopped(_btnIdx)
+			g_cDat[_btnIdx].kbHeld = false
+		endif
+	endif endif
+return started
+
 // Checks whether a directional input should cause scrolling and, if so,
 // updates g_cDat with the input info and returns true.
 function scrollInputStarted(_c)
@@ -16724,10 +17004,10 @@ function scrollInputStarted(_c)
 		or (_c.up or _c.down))
 	
 	if started then
-		updateLxyStarted()
+		g_cDat[g_cIdx.lxy] = updateInputStarted(g_cIdx.lxy)
 	else if abs(_c.lx) <= 0.3 and abs(_c.ly) <= 0.3 and abs(_c.rx) <= 0.3 and abs(_c.ry) <= 0.3 
 			and !_c.up and !_c.down then
-		updateLxyStopped()
+		g_cDat[g_cIdx.lxy] = updateInputStopped(g_cIdx.lxy)
 	endif endif
 return started
 
@@ -16740,10 +17020,17 @@ function menuDirInputStarted(_c, _kbActive)
 		and (abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3 or _c.up or _c.down or _c.left or _c.right)
 	
 	if started then
-		updateLxyStarted()
+		g_cDat[g_cIdx.lxy] = updateInputStarted(g_cIdx.lxy)
+		
+		if _kbActive then
+			g_cDat[g_cIdx.lxy].kbHeld = true
+		endif
 	else if abs(_c.lx) <= 0.3 and abs(_c.ly) <= 0.3 and !_c.up 
 			and !_c.down and !_c.left and !_c.right then
-		updateLxyStopped()
+		if !g_cDat[g_cIdx.lxy].kbHeld or time() - g_cDat[g_cIdx.lxy].lastTime > g_kbRateRep then
+			g_cDat[g_cIdx.lxy] = updateInputStopped(g_cIdx.lxy)
+			g_cDat[g_cIdx.lxy].kbHeld = false
+		endif
 	endif endif
 return started
 
@@ -16756,24 +17043,24 @@ function leftStickInputStarted(_c, _kbActive)
 		and (abs(_c.lx) > 0.3 or abs(_c.ly) > 0.3)
 	
 	if started then
-		updateLxyStarted()
+		g_cDat[g_cIdx.lxy] = updateInputStarted(g_cIdx.lxy)
 	else if abs(_c.lx) <= 0.3 and abs(_c.ly) <= 0.3 then
-		updateLxyStopped()
+		g_cDat[g_cIdx.lxy] = updateInputStopped(g_cIdx.lxy)
 	endif endif
 return started
 
-// Updates g_cDat for left stick input starting.
-function updateLxyStarted()
-	g_cDat[g_cIdx.lxy].lastTime = time()
-	g_cDat[g_cIdx.lxy].held = true
-	g_cDat[g_cIdx.lxy].count += 1
-return void
+// Updates g_cDat for repeating input starting.
+function updateInputStarted(_btnIdx)
+	g_cDat[_btnIdx].lastTime = time()
+	g_cDat[_btnIdx].held = true
+	g_cDat[_btnIdx].count += 1
+return g_cDat[_btnIdx]
 
-// Updates g_cDat for left stick input stopping.
-function updateLxyStopped()
-	g_cDat[g_cIdx.lxy].held = false
-	g_cDat[g_cIdx.lxy].count = 0
-return void
+// Updates g_cDat for repeating input stopping.
+function updateInputStopped(_btnIdx)
+	g_cDat[_btnIdx].held = false
+	g_cDat[_btnIdx].count = 0
+return g_cDat[_btnIdx]
 
 	// ----------------------------------------------------------------
 	// EDITOR KEYBOARD PARSING
@@ -17070,6 +17357,7 @@ return void
 function updateThrow()
 	var i
 	var c = controls(0)
+	c = applyKb(c, g_bind.menu).c
 	
 	var unfrozenObjs = 0
 	
@@ -17094,10 +17382,13 @@ function updateThrow()
 			
 			i -= 1
 		else
-			if g_photoMode and c.y then
+			if g_photoMode and c.y and !g_cDat[g_cIdx.y].held then
 				// Boost thrown objects into air
-				g_thrown[i].colCon = addColContextVel(g_thrown[i].colCon, {0, 1.5, 0})
-			endif
+				g_thrown[i].colCon = addColContextVel(g_thrown[i].colCon, {0, 20, 0})
+				g_cDat[g_cIdx.y].held = true
+			else if !c.y then
+				g_cDat[g_cIdx.y].held = false
+			endif endif
 			
 			// Distribute updates of unfrozen objects among a frame range determined by how many unfrozen objects exist. 
 			// Also update frozen objects because those updates are basically just skipped.
@@ -17282,8 +17573,8 @@ function updateCam(_c)
 	var newUp
 	var newFwd = axisRotVecBy(
 		g_cam.fwd,
-		g_cam.up,
-		_c.rx * 0.0167 * g_cam.rotSpd * -1 * (1 - abs(g_cam.fwd.y) * 0.75) // Rotate slower when cam is pointing up/down
+		{0, 1, 0},
+		_c.rx * 0.0167 * g_cam.rotSpd * -1
 	)
 	var newR = axisRotVecBy(flattenY(newFwd), {0, 1, 0}, -90)
 	var unconstrainedFwd = axisRotVecBy(
@@ -17452,8 +17743,10 @@ function moveCur(_c)
 		var moveRes = 6 // Round position to 6 decimal places
 		
 		if _c.l then
+			g_cur.posMode = 1
 			g_cDat[g_cIdx.l].held = true
 		else if !_c.l then
+			g_cur.posMode = 0
 			g_cDat[g_cIdx.l].held = false
 		endif endif	
 		
@@ -17566,7 +17859,8 @@ return void
 
 // Projects cursor 3D position to 2D screen position.
 function updateCurPos2d()
-	g_cur.pos2d = worldPosToScreenPos(g_cur.pos, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
+	g_cur.pos2d = worldPosToScreenPos(g_cur.pos, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov, 
+		g_screenRes.x, g_screenRes.y)
 return void
 
 // Performs rotation on the brush object.
@@ -17909,7 +18203,8 @@ function drawObjLabels()
 						obj = g_cell[cellIdx][j]
 						
 						if !isMapObjRef(-1, obj) then
-							screenPos = worldPosToScreenPos(obj.pos, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov)
+							screenPos = worldPosToScreenPos(obj.pos, g_cam.fwd, g_cam.up, g_cam.pos, g_cam.fov, 
+								gwidth(), gheight())
 							
 							if screenPos.x >= 0 and screenPos.x <= gwidth() 
 									and screenPos.y >= 0 and screenPos.y <= gheight() then
@@ -17924,8 +18219,8 @@ function drawObjLabels()
 										
 								for k = 0 to len(obj.cellIdx) loop
 									drawText(screenPos.x - width / 2, screenPos.y + (k + 1) * scale, scale,
-										g_theme.bgSelCol, ifElse(g_dirtyMap, "*", "") + "(g_cell[" + decodeCell(obj.cellIdx[k]) + "][" 
-										+ decodeIdx(-1, obj.cellIdx[k]) + "])")
+										g_theme.bgSelCol, ifElse(g_dirtyObjLabels, "*", "") + "g_cell[" + decodeCell(obj.cellIdx[k]) + "][" 
+										+ decodeIdx(-1, obj.cellIdx[k]) + "]")
 								repeat
 							endif
 						endif
@@ -17945,18 +18240,30 @@ function drawStatusBar()
 		
 		box(0, barY, gwidth(), g_statusBarH, g_theme.inactiveCol, 0)
 		box(0 + g_menuBorderW, barY + g_menuBorderW, gwidth() - g_menuBorderW * 2, g_statusBarH - g_menuBorderW * 2, g_theme.bgCol, 0)
-		box(ctlx, barY, gwidth() - ctlX, g_statusBarH, g_theme.inactiveCol, 0)
+		box(ctlX, barY, gwidth() - ctlX, g_statusBarH, g_theme.inactiveCol, 0)
 		box(ctlX + g_menuBorderW, barY + g_menuBorderW, gwidth() - ctlX - g_menuBorderW * 2, g_statusBarH - g_menuBorderW * 2, g_theme.bgCol, 0)
 		
 		loop if g_cur.mode == "move" then
 			var movModeStr
-			if g_cDat[g_cIdx.l].held then
-				movModeStr = "camera x (left/right) and global y (up/down)"
+			if g_cur.posMode then
+				movModeStr = "camera x (left/right) and world y (up/down)"
 			else
 				movModeStr = "camera x (left/right) and camera z (up/down)"
 			endif
 			
+			var posSnapModeStr = getSnapModeStr(g_cur.posSnapMode)
+			if g_cur.posSnapMode > 0 then
+				var amt = g_cur.posSnapAmount
+				
+				if amt < 0 then
+					amt = "grid unit"
+				endif
+				
+				posSnapModeStr += " " + strRemoveTrailingZeroes(str(amt))
+			endif
+			
 			drawText(xMargin, barY, g_statusTextH, g_theme.textCol, "Editing position on " + movModeStr)
+			drawText(xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, posSnapModeStr)
 			drawText(xMargin, barY + g_statusTextH * 2, g_statusTextH, g_theme.textCol, "Position: " + vec3ToStr(g_cur.pos, g_dispDec))
 			break endif
 		if g_cur.mode == "rotate" then
@@ -17964,12 +18271,12 @@ function drawStatusBar()
 			if g_cur.rotMode then
 				rotModeStr = "local y (left/right) and local x (up/down) "
 			else
-				rotModeStr = "global y (left/right) and local z (up/down)"
+				rotModeStr = "world y (left/right) and local z (up/down)"
 			endif
 			
 			var rotSnapModeStr = getSnapModeStr(g_cur.rotSnapMode)
 			if g_cur.rotSnapMode > 0 then
-				rotSnapModeStr += " " + g_cur.rotSnapAmount + chr(176)
+				rotSnapModeStr += " " + strRemoveTrailingZeroes(str(g_cur.rotSnapAmount)) + chr(176)
 			endif
 			
 			drawText(xMargin, barY, g_statusTextH, g_theme.textCol, "Editing rotation on " + rotModeStr)
@@ -17999,7 +18306,7 @@ function drawStatusBar()
 			
 			var scaleSnapModeStr = getSnapModeStr(g_cur.scaleSnapMode)
 			if g_cur.scaleSnapMode > 0 then
-				scaleSnapModeStr += " " + g_cur.scaleSnapAmount
+				scaleSnapModeStr += " " + strRemoveTrailingZeroes(str(g_cur.scaleSnapAmount))
 			endif
 			
 			drawText(xMargin, barY, g_statusTextH, g_theme.textCol, "Editing scale on " + scaleModeStr)
@@ -18012,7 +18319,7 @@ function drawStatusBar()
 		if g_cur.mode == "masssel" then
 			var movModeStr
 			if g_cDat[g_cIdx.l].held then
-				movModeStr = "camera x (left/right) and global y (up/down)"
+				movModeStr = "camera x (left/right) and world y (up/down)"
 			else
 				movModeStr = "camera x (left/right) and camera z (up/down)"
 			endif
@@ -18023,23 +18330,28 @@ function drawStatusBar()
 			break
 		endif break repeat
 		
-		if g_cur.mode == "move" then
-			drawText(ctlx + xMargin, barY, g_statusTextH, g_theme.textCol, 
+		if g_cur.mode == "move" or g_cur.mode == "masssel" then
+			drawText(ctlX + xMargin, barY, g_statusTextH, g_theme.textCol, 
 				"Hold (L) to move vertically")
-			drawText(ctlx + xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, 
-				"(R) to toggle edit mode")
+			if g_cur.mode == "move" then
+				drawText(ctlX + xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, 
+					"(R) to toggle edit mode")
+			else
+				drawText(ctlX + xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, 
+					"(A) to confirm, (B) to cancel")
+			endif
 		else
-			drawText(ctlx + xMargin, barY, g_statusTextH, g_theme.textCol, 
+			drawText(ctlX + xMargin, barY, g_statusTextH, g_theme.textCol, 
 				"(L) to toggle axes")
-			drawText(ctlx + xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, 
+			drawText(ctlX + xMargin, barY + g_statusTextH, g_statusTextH, g_theme.textCol, 
 				"(R) to toggle edit mode")
 		endif
 		
-		if g_freezeFile then
-			drawText(ctlx + xMargin, barY - g_statusTextH, g_statusTextH, red, 
-				"FILE IS FROZEN")
+		if g_safeMode then
+			drawText(xMargin, barY - g_statusTextH, g_statusTextH, red, 
+				"SAFE MODE: FILE CHANGES WON'T PERSIST")
 		endif
-		drawText(ctlx + xMargin, barY + g_statusTextH * 2, g_statusTextH, g_theme.textCol, 
+		drawText(ctlX + xMargin, barY + g_statusTextH * 2, g_statusTextH, g_theme.textCol, 
 			"Map name: " + ifElse(g_dirtyMap, "*", "") + g_currentMapName)
 			
 		boxW = (gwidth() / 8)
@@ -18055,6 +18367,14 @@ return void
 // unselectable menu entries invisible.
 function getThemeDefs()
 	var themeDef = [
+		[
+			.name = "Achtung",
+			.bgCol = {2, 2, 2, 255} / 255,
+			.textCol = {50, 150, 255, 255} / 255,
+			.bgSelCol = red,
+			.textSelCol = {201, 155, 155, 255} / 255,
+			.inactiveCol = darkRed
+		],
 		[
 			.name = "Alpine",
 			.bgCol = {0.5, 0.7, 0.9, 1},
@@ -18299,70 +18619,7 @@ return void
 
 // General debug function for printing data to screen.
 function debug()
-	textSize(g_menuTextSize * 0.6)
-	ink(purple)
-	printAt(15, 5, "CAM CELL: " + g_cam.cell)
-	printAt(15, 6, "CAM CELLPOS: " + vec3ToStr(g_cam.cellPos, 2))
-	//printAt(15, 7, g_cell[g_cam.cell][1])
-	//printAt(15, 7, "CURSOR CAM ADJ: ")
-	//printAt(15, 8, g_cell[g_cam.cell][1])
-	
-	printAt(15, 7, "CURSOR CELL: " + g_cur.cell)
-	printAt(15, 8, g_cur.lastColContext.collision)
-	
-	//printAt(15, 9, "CUBE COLLISIONS, OBJLIST")
-	//printAt(15, 10, g_cubeColCon.collision)
-	//printAt(15, 11, g_cubeColCon.objList)
-	//printAt(15, 12, "CAM COLLISION OBJLIST")
-	//var i
-	//for i = 0 to len(g_cam.lastColContext.objList) loop
-		//printAt(15, 13 + i, str(g_cam.lastColContext.objList[i]))
-	//repeat
-		
-	//printAt(30, 10, "g_lightIcons")
-	//printAt(30, 11, g_lightIcons)
-	//printAt(30, 12, "g_cur.lastColContext.objList")
-	//printAt(30, 13, g_cur.lastColContext.objList)
-	printAt(30, 14, "g_cam.lastColContext.objList")
-	printAt(30, 15, g_cam.lastColContext.objList)
-	printAt(30, 16, "g_cam.lastColContext.collision")
-	printAt(30, 17, g_cam.lastColContext.collision)
-	if len(g_cam.lastColContext.colDepth) then
-		printAt(30, 18, g_cam.lastColContext.colDepth[0])
-	endif
-	if len(g_thrown) then
-		printAt(30, 21, g_thrown[len(g_thrown) - 1].colCon.vel)
-		printAt(15, 22, length(g_thrown[len(g_thrown) - 1].colCon.vel))
-		printAt(30, 23, g_thrown[len(g_thrown) - 1].colCon.rotVel)
-		printAt(15, 24, g_thrown[len(g_thrown) - 1].colCon.objList)
-		printAt(15, 25, g_thrown[len(g_thrown) - 1].colCon.collision)
-	endif
-	//printAt(30, 16, "g_sel")
-	//printAt(30, 17, g_sel)
-	//if len(g_sel) then
-	//	printAt(30, 18, "g_sel[0] bank/idx")
-	//	printAt(30, 19, decodeBank(-1, getMapObjFromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
-	//	printAt(36, 20, decodeIdx(-1, getMapObjfromRef(g_cell[g_sel[0][0].cell][g_sel[0][0].idx]).bankIdx))
-	//endif
-	
-	//for i = g_cellObjStart to len(g_cell[46]) loop
-	//	printAt(0, 36 + i, g_cell[46][i].cellIdx)
-	//repeat
-	//printAt(0, 37, getPosFromGridIdx(g_cur.cell, 13, 20))
-	
-	textSize(gheight() / 45)
-	ink(green)
-	printAt(0, 8, g_worldLights)
-	updateDebugLines()
-	
-	if g_cur.mode == "masssel" then
-		textSize = gwidth() / 15
-		printAt(0, 9, g_cur.massSel.cell)
-		var i
-		for i = 0 to len(g_cur.massSel.contents) loop
-			printAt(0, 21 + i, getMapObjName(-1, g_cur.massSel.contents[i]))
-		repeat
-	endif
+	//updateDebugLines()
 return void
 
 // Draws a debug line that automaticaly disappears after _dur seconds.
@@ -18828,7 +19085,7 @@ function loadLogoTextImg(_fillCol, _outlineCol)
 		l,l,l,l,l,l,o,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,   o,l,o,_,_,_,_,_,o,l,o,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,o, // 1
 		l,l,l,l,l,o,_,_,_,_,_,o,o,o,_,_,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,   l,l,o,_,_,_,_,_,o,l,l,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,_,_,_,_,o, // 2
 		l,l,l,l,o,_,_,_,_,o,o,l,l,l,o,_,o,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,   l,l,l,o,_,_,_,_,o,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,o,o,o,o,l, // 3
-		l,l,l,o,_,_,_,_,o,l,l,l,l,l,l,o,l,l,l,l,l,l,l,l,l,l,l,,,l,l,l,l,   l,l,l,o,_,_,_,_,o,l,l,l,l,l,l,l,l,,,,,,,l,l,l,l,l,l,l,l,l,l,l,l, // 4
+		l,l,l,o,_,_,_,_,o,l,l,l,l,l,l,o,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,   l,l,l,o,_,_,_,_,o,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l,l, // 4
 		l,l,o,_,_,_,_,_,o,l,l,l,l,l,l,l,l,l,l,l,l,l,l,o,o,o,o,o,o,o,l,l,   l,l,l,o,_,_,_,_,o,l,l,l,l,l,l,o,o,o,o,o,o,o,o,o,o,l,o,o,o,o,o,l, // 5
 		l,l,o,_,_,_,_,o,l,l,l,l,l,l,l,l,l,l,l,l,l,o,o,_,_,_,_,_,_,_,o,o,   l,l,l,o,_,_,_,_,o,l,l,l,l,o,o,_,_,_,_,_,_,_,_,_,_,o,_,_,_,_,_,o, // 6
 		l,o,_,_,_,_,_,o,l,l,l,l,l,l,l,l,l,l,l,l,o,_,_,_,_,_,o,o,_,_,_,_,   o,l,l,o,_,_,_,_,o,l,l,l,o,_,_,_,_,_,o,_,_,_,_,_,_,_,_,_,_,_,_,o, // 7
@@ -18924,302 +19181,6 @@ function sndMenuSel()
 	playNote(g_chMenu, 0, note2Freq(82), 3, 600, 0.5)
 	playNote(g_chMenu + 1, 3, note2Freq(77), 5, 290, 0.5)
 return void
-
-	// ----------------------------------------------------------------
-	// TEMPO MAP FUNCTIONS
-
-// Returns true if _pos1 is before _pos2.
-function measurePosBefore(_pos1, _pos2)
-	var result = false
-	
-	if _pos1.x < _pos2.x or
-			(_pos1.x == _pos2.x and _pos1.y < _pos2.y) or
-			(_pos1.x == _pos2.x and _pos1.y == _pos2.y and _pos1.z < _pos2.z) then
-		result = true
-	endif
-return result
-
-// Returns true if _pos1 is before or equal to _pos2.
-function measurePosBeforeOrEqual(_pos1, _pos2)
-return _pos1 == _pos2 or measurePosBefore(_pos1, _pos2)
-
-// Returns true if _pos1 is after _pos2.
-function measurePosAfter(_pos1, _pos2)
-	var result = false
-	
-	if _pos1.x > _pos2.x or
-			(_pos1.x == _pos2.x and _pos1.y > _pos2.y) or
-			(_pos1.x == _pos2.x and _pos1.y == _pos2.y and _pos1.z > _pos2.z) then
-		result = true
-	endif
-return result
-
-// Returns true if _pos1 is after or equal to _pos2.
-function measurePosAfterOrEqual(_pos1, _pos2)
-return _pos1 == _pos2 or measurePosAfter(_pos1, _pos2)
-
-// Adds two measure/beat positions. Adds measures first, then combines beats and overflows them into 
-// new measures based on tempo map.
-function measurePosAdd(_tempoMap, _pos1, _pos2)
-	var newPos = {0, 0}
-	
-	newPos.y = _pos1.y + _pos2.y
-	newPos.x = _pos1.x + _pos2.x
-	
-	var sig = getTempoSigAtMeasurePos(_tempoMap, {newPos.x, 0}).sig
-	
-	while newPos.y >= sig loop
-		newPos.y -= sig
-		newPos.x += 1
-		
-		sig = getTempoSigAtMeasurePos(_tempoMap, {newPos.x, 0}).sig
-	repeat
-return newPos
-
-// Subtracts one measure/beat position from another. Subtracts measures first, then combines beats and 
-// overflows them into new measures based on tempo map.
-function measurePosSubtract(_tempoMap, _pos1, _pos2)
-	var newPos = {0, 0}
-	
-	newPos.y = _pos1.y - _pos2.y
-	newPos.x = _pos1.x - _pos2.x
-	
-	var sig = getTempoSigAtMeasurePos(_tempoMap, {newPos.x - 1, 0}).sig
-	
-	while newPos.y < 0 loop
-		newPos.y += sig
-		newPos.x -= 1
-		
-		sig = getTempoSigAtMeasurePos(_tempoMap, {newPos.x - 1, 0}).sig
-	repeat
-return newPos
-
-// Adds clock time to a measure/beat position. Adds measures first, then combines beats and overflows them into 
-// new measures based on tempo map.
-function measurePosAddTime(_tempoMap, _pos1, _dur)
-	var newPos = {0, 0}
-	var sig = getTempoSigAtMeasurePos(_tempoMap, {newPos.x, 0}).sig
-	var startTime = getTimeFromTempoMap(_tempoMap, _pos1)
-	var measDatEnd = getTempoSigAtTime(_tempoMap, startTime + _dur)
-	var tempoStartTime = getTimeFromTempoMap(_tempoMap, _tempoMap[measDatEnd.idx].beatPos)
-	var timeSpan
-	
-	if tempoStartTime > startTime then
-		timeSpan = startTime + _dur - tempoStartTime
-		_pos1 = _tempoMap[measDatEnd.idx].beatPos
-	else
-		timeSpan = startTime + _dur - startTime
-	endif
-	
-	var beatSpan = timeSpan * (measDatEnd.bpm / 60)
-	var newPos = measurePosAdd(_tempoMap, _pos1, {0, beatSpan})
-return newPos
-
-// Gets tempo and time signature at a given measure/beat position.
-function getTempoSigAtMeasurePos(_tempoMap, _pos)
-	var sig = 0
-	var tempo = 0
-	var idx = 0
-	
-	// We default to the first sig entry for any position that falls before the first sig
-	if len(_tempoMap) then
-		sig = _tempoMap[0].timeSig
-		tempo = _tempoMap[0].bpm
-	endif
-	
-	var i
-	for i = 1 to len(_tempoMap) loop
-		if measurePosBefore(_pos, _tempoMap[i].beatPos) then
-			break
-		else
-			sig = _tempoMap[i].timeSig
-			tempo = _tempoMap[i].bpm
-			idx = i
-		endif
-	repeat
-	
-	var result = [
-		.sig = sig,
-		.bpm = tempo,
-		.idx = idx
-	]
-return result
-
-// Gets tempo and time signature at a given time.
-function getTempoSigAtTime(_tempoMap, _time)
-	var sig = 0
-	var tempo = 0
-	var idx = 0
-	
-	// We default to the first sig entry for any position that falls before the first sig
-	if len(_tempoMap) then
-		sig = _tempoMap[0].timeSig
-		tempo = _tempoMap[0].bpm
-	endif
-	
-	var i
-	for i = 1 to len(_tempoMap) loop
-		if _time < getTimeFromTempoMap(_tempoMap, _tempoMap[i].beatPos) then
-			break
-		else
-			sig = _tempoMap[i].timeSig
-			tempo = _tempoMap[i].bpm
-			idx = i
-		endif
-	repeat
-	
-	var result = [
-		.sig = sig,
-		.bpm = tempo,
-		.idx = idx
-	]
-return result
-
-// Gets clock time at a given measure/beat position.
-function getTimeFromTempoMap(_tempoMap, _pos)
-return getTimeFromTempoMap(_tempoMap, _pos, 0)
-
-function getTimeFromTempoMap(_tempoMap, _pos, _baseTime)
-	var clockTime = 0
-	var secPerBeat
-	
-	var i
-	for i = 1 to len(_tempoMap) + 1 loop
-		secPerBeat = 60 / _tempoMap[i - 1].bpm
-		
-		// ((Measure difference * beats in a measure) + beats into end measure - beats into start measure) * seconds per beat = clock length of segment
-		if measurePosBefore(_pos, _tempoMap[min(i, len(_tempoMap) - 1)].beatPos) or i == len(_tempoMap) then
-			clockTime += (_tempoMap[i - 1].timeSig * (_pos.x - _tempoMap[i - 1].beatPos.x) 
-				+ _pos.y - _tempoMap[i - 1].beatPos.y) * secPerBeat
-				
-			break
-		else if i > 0 then
-			clockTime += (_tempoMap[i - 1].timeSig * (_tempoMap[i].beatPos.x - _tempoMap[i - 1].beatPos.x) 
-				+ _tempoMap[i].beatPos.y - _tempoMap[i - 1].beatPos.y) * secPerBeat
-		endif endif
-	repeat
-return clockTime + _baseTime
-
-	// ----------------------------------------------------------------
-	// ASSEMBLER
-
-// Converts friendly pitch notation into MIDI pitch. C4 = middle C. Supports C0-B9.
-function pitch2Midi(_pitch)
-	_pitch = lower(_pitch)
-	var midi = 0
-	
-	loop if _pitch[0] == "c" then midi = 0 break endif
-	if _pitch[0] == "d" then midi = 2 break endif
-	if _pitch[0] == "e" then midi = 4 break endif
-	if _pitch[0] == "f" then midi = 5 break endif
-	if _pitch[0] == "g" then midi = 7 break endif
-	if _pitch[0] == "a" then midi = 9 break endif
-	if _pitch[0] == "b" then midi = 11 break endif
-	break repeat
-	
-	if len(_pitch) > 2 then
-		if _pitch[1] == "#" then midi += 1
-		else midi -= 1 endif
-	endif
-	
-	midi += (int(_pitch[len(_pitch) - 1]) + 1) * 12
-return midi
-
-// Gives us the value to multiply a frequency by to change a root pitch to a new pitch.
-function getFactorFromRootDif(_root, _pitch)
-	var dif = _pitch - _root
-return pow(2, dif / 12)
-
-// Executes scheduled audio events that are due.
-function updateSndQueue(ref _queue)
-	var sndIsDue = false
-	var played = []
-	
-	var i
-	var j
-	
-	for i = 0 to len(_queue.queue) loop
-		if _queue.queueIdx >= len(_queue.queue) then
-			break
-		endif
-		
-		while time() + _queue.playheadOffset >= getTimeFromTempoMap(_queue.tempoMap, _queue.queue[_queue.queueIdx].beatPos, _queue.startTime) + _queue.queue[_queue.queueIdx].timePos loop
-			playQueuedSnd(_queue.queue[_queue.queueIdx], _queue.samples)
-			played = push(played, _queue.queue[_queue.queueIdx])
-			
-			if !len(_queue.queue) then break endif
-			
-			_queue.queueIdx += 1
-			
-			if _queue.queueIdx >= len(_queue.queue) then break endif
-		repeat
-	repeat
-return played
-
-// Routes scheduled audio event data to the correct function.
-function playQueuedSnd(_snd, _samples)
-	loop if _snd.func == "playAudio" then
-		playAudio(_snd.ch, _samples[_snd.arg[0]], _snd.arg[1], _snd.arg[2], _snd.arg[3], _snd.arg[4])
-		break endif
-	if _snd.func == "playNote" then
-		playNote(_snd.ch, _snd.arg[0], _snd.arg[1], _snd.arg[2], _snd.arg[3], _snd.arg[4])
-		break endif
-	if _snd.func == "setClipper" then
-		setClipper(_snd.ch, _snd.arg[0], _snd.arg[1])
-		break endif
-	if _snd.func == "setEnvelope" then
-		setEnvelope(_snd.ch, _snd.arg[0])
-		break endif
-	if _snd.func == "setFilter" then
-		setFilter(_snd.ch, _snd.arg[0], _snd.arg[1])
-		break endif
-	if _snd.func == "setFrequency" then
-		setFrequency(_snd.ch, _snd.arg[0])
-		break endif
-	if _snd.func == "setModulator" then
-		setModulator(_snd.ch, _snd.arg[0], _snd.arg[1], _snd.arg[2])
-		break endif
-	if _snd.func == "setPan" then
-		setPan(_snd.ch, _snd.arg[0])
-		break endif
-	if _snd.func == "setReverb" then
-		setReverb(_snd.ch, _snd.arg[0], _snd.arg[1])
-		break endif
-	if _snd.func == "setVolume" then
-		setVolume(_snd.ch, _snd.arg[0])
-		break endif
-	if _snd.func == "startChannel" then
-		startChannel(_snd.ch)
-		break
-	else // stopChannel
-		stopChannel(_snd.ch)
-		break
-	endif break repeat
-return void
-
-// Create sound queue
-function initQueue(_name, _startTime, _tempoMap)
-	var audioQueue = [
-		.fileDat = [ .section = -1, .block = [ .idx = -1 ], .unit = -1, .field = -1, .elem = -1 ],
-		.queue = [],
-		.queueIdx = 0,
-		.lastAudio = [],
-		.playheadOffset = 0,
-		.queueDeferLimit = 0,
-		.queueDeferCount = 0,
-		.tempoMap = _tempoMap,
-		.samples = [],
-		.name = _name,
-		.startTime = _startTime,
-		.pauseTime = -1,
-		.pauseStopCh = [],
-		.endedTime = -1,
-		.loops = 0,
-		.loopTail = 0,
-		.loopIdx = 0,
-		.loopStartTime = 0
-	]
-return audioQueue
 
 // Sound for splash screen.
 function getSplashAudio()
@@ -19494,5 +19455,132 @@ function getCycleModeAudio()
 		[ .beatPos = {0, 0}, .timePos = 0, .func = "playNote", .ch = ch + 1, .arg = [wav2, note2Freq(74), vol2, spd2, pan] ],
 		[ .beatPos = {0, 0.35}, .timePos = 0, .func = "playNote", .ch = ch, .arg = [wav, note2Freq(79), vol, spd, pan] ],
 		[ .beatPos = {0, 0.25}, .timePos = 0, .func = "playNote", .ch = ch + 1, .arg = [wav2, note2Freq(72), vol2, spd2, pan] ]
+	]
+return audioQueue
+
+// Returns true if _pos1 is before _pos2.
+function measurePosBefore(_pos1, _pos2)
+	var result = false
+	
+	if _pos1.x < _pos2.x or
+			(_pos1.x == _pos2.x and _pos1.y < _pos2.y) or
+			(_pos1.x == _pos2.x and _pos1.y == _pos2.y and _pos1.z < _pos2.z) then
+		result = true
+	endif
+return result
+
+// Gets clock time at a given measure/beat position.
+function getTimeFromTempoMap(_tempoMap, _pos)
+return getTimeFromTempoMap(_tempoMap, _pos, 0)
+
+function getTimeFromTempoMap(_tempoMap, _pos, _baseTime)
+	var clockTime = 0
+	var secPerBeat
+	
+	var i
+	for i = 1 to len(_tempoMap) + 1 loop
+		secPerBeat = 60 / _tempoMap[i - 1].bpm
+		
+		// ((Measure difference * beats in a measure) + beats into end measure - beats into start measure) * seconds per beat = clock length of segment
+		if measurePosBefore(_pos, _tempoMap[min(i, len(_tempoMap) - 1)].beatPos) or i == len(_tempoMap) then
+			clockTime += (_tempoMap[i - 1].timeSig * (_pos.x - _tempoMap[i - 1].beatPos.x) 
+				+ _pos.y - _tempoMap[i - 1].beatPos.y) * secPerBeat
+				
+			break
+		else if i > 0 then
+			clockTime += (_tempoMap[i - 1].timeSig * (_tempoMap[i].beatPos.x - _tempoMap[i - 1].beatPos.x) 
+				+ _tempoMap[i].beatPos.y - _tempoMap[i - 1].beatPos.y) * secPerBeat
+		endif endif
+	repeat
+return clockTime + _baseTime
+
+// Executes scheduled audio events that are due.
+function updateSndQueue(ref _queue)
+	var sndIsDue = false
+	var played = []
+	
+	var i
+	var j
+	
+	for i = 0 to len(_queue.queue) loop
+		if _queue.queueIdx >= len(_queue.queue) then
+			break
+		endif
+		
+		while time() + _queue.playheadOffset >= getTimeFromTempoMap(_queue.tempoMap, _queue.queue[_queue.queueIdx].beatPos, _queue.startTime) + _queue.queue[_queue.queueIdx].timePos loop
+			playQueuedSnd(_queue.queue[_queue.queueIdx], _queue.samples)
+			played = push(played, _queue.queue[_queue.queueIdx])
+			
+			if !len(_queue.queue) then break endif
+			
+			_queue.queueIdx += 1
+			
+			if _queue.queueIdx >= len(_queue.queue) then break endif
+		repeat
+	repeat
+return played
+
+// Routes scheduled audio event data to the correct function.
+function playQueuedSnd(_snd, _samples)
+	loop if _snd.func == "playAudio" then
+		playAudio(_snd.ch, _samples[_snd.arg[0]], _snd.arg[1], _snd.arg[2], _snd.arg[3], _snd.arg[4])
+		break endif
+	if _snd.func == "playNote" then
+		playNote(_snd.ch, _snd.arg[0], _snd.arg[1], _snd.arg[2], _snd.arg[3], _snd.arg[4])
+		break endif
+	if _snd.func == "setClipper" then
+		setClipper(_snd.ch, _snd.arg[0], _snd.arg[1])
+		break endif
+	if _snd.func == "setEnvelope" then
+		setEnvelope(_snd.ch, _snd.arg[0])
+		break endif
+	if _snd.func == "setFilter" then
+		setFilter(_snd.ch, _snd.arg[0], _snd.arg[1])
+		break endif
+	if _snd.func == "setFrequency" then
+		setFrequency(_snd.ch, _snd.arg[0])
+		break endif
+	if _snd.func == "setModulator" then
+		setModulator(_snd.ch, _snd.arg[0], _snd.arg[1], _snd.arg[2])
+		break endif
+	if _snd.func == "setPan" then
+		setPan(_snd.ch, _snd.arg[0])
+		break endif
+	if _snd.func == "setReverb" then
+		setReverb(_snd.ch, _snd.arg[0], _snd.arg[1])
+		break endif
+	if _snd.func == "setVolume" then
+		setVolume(_snd.ch, _snd.arg[0])
+		break endif
+	if _snd.func == "startChannel" then
+		startChannel(_snd.ch)
+		break
+	else // stopChannel
+		stopChannel(_snd.ch)
+		break
+	endif break repeat
+return void
+
+// Create sound queue
+function initQueue(_name, _startTime, _tempoMap)
+	var audioQueue = [
+		.fileDat = [ .section = -1, .block = [ .idx = -1 ], .unit = -1, .field = -1, .elem = -1 ],
+		.queue = [],
+		.queueIdx = 0,
+		.lastAudio = [],
+		.playheadOffset = 0,
+		.queueDeferLimit = 0,
+		.queueDeferCount = 0,
+		.tempoMap = _tempoMap,
+		.samples = [],
+		.name = _name,
+		.startTime = _startTime,
+		.pauseTime = -1,
+		.pauseStopCh = [],
+		.endedTime = -1,
+		.loops = 0,
+		.loopTail = 0,
+		.loopIdx = 0,
+		.loopStartTime = 0
 	]
 return audioQueue

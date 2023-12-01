@@ -1,0 +1,8 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+#Graphics
+*.png filter=lfs diff=lfs merge=lfs -text
+*.xcf filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+#General large binaries
+*.pdf filter=lfs diff=lfs merge=lfs -text

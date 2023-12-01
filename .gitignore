@@ -1,0 +1,5 @@
+# Don't archive temporary/nonessential files
+Temp/*
+Old/*
+Deprecated/*
+Transfer Images/*
