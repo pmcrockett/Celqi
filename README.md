@@ -32,7 +32,7 @@ Here is an example of what a full `models` array might look like:
 ```
 var models = [
 	[
-	    // Bank name (optional)
+        // Bank name (optional)
 		["Nature 1"],
 		// Object name, object filepath
 		["Stump", "Kenney/Trunk_01"], 
@@ -40,8 +40,8 @@ var models = [
 		["Shrub 2", "Kenney/Plant_2_01"]
 	],
 	[	
-	    // No bank name given, so the bank will be auto-named.
-	    // Object will be auto-named "Plate River Dirt 01".
+        // No bank name given, so the bank will be auto-named.
+        // Object will be auto-named "Plate River Dirt 01".
 		["", "Kenney/Plate_River_Dirt_01"], 
 		// Object will be auto-named "Plate River Corner Dirt 01".
 		["", "Kenney/Plate_River_Corner_Dirt_01"], 
