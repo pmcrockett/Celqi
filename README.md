@@ -1,3 +1,5 @@
+![Celqi montage header](/Image/Celqi logo montage small.jpg)
+
 # CELQI - 3D MAP EDITOR FOR FUZE (1.0.00)
 
 --------
