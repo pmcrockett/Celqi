@@ -1,5 +1,9 @@
 ![Celqi montage header](/Image/Celqi%20logo%20montage%20small.jpg)
 
+[YouTube demo](https://www.youtube.com/watch?v=de9ErX7hD_s)
+
+FUZE download code: **H1R23MNDDT**
+
 # CELQI - 3D MAP EDITOR FOR FUZE (1.0.00)
 
 --------
